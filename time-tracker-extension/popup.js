@@ -1,10 +1,11 @@
 const TIMER_KEY = 'timeTrackerTimer';
 const el = id => document.getElementById(id);
 const state = { bootstrap: null, timer: null };
+const WEB_APP_URL = typeof TIME_TRACKER_WEB_APP_URL === 'string' ? TIME_TRACKER_WEB_APP_URL.trim() : '';
 
 function apiUrl(action) {
-  const joiner = TIME_TRACKER_WEB_APP_URL.includes('?') ? '&' : '?';
-  return `${TIME_TRACKER_WEB_APP_URL}${joiner}api=${encodeURIComponent(action)}`;
+  const joiner = WEB_APP_URL.includes('?') ? '&' : '?';
+  return `${WEB_APP_URL}${joiner}api=${encodeURIComponent(action)}`;
 }
 function notice(message) { const box = el('notice'); box.textContent = message; box.hidden = !message; }
 function dateKey(timestamp) { const date = new Date(timestamp); return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`; }
@@ -20,7 +21,13 @@ async function storeTimer(timer) { return new Promise(resolve => chrome.storage.
 async function clearTimer() { return new Promise(resolve => chrome.storage.local.remove(TIMER_KEY, resolve)); }
 async function loadBootstrap() {
   const response = await fetch(apiUrl('timerBootstrap'), { credentials: 'include' });
-  const result = await response.json();
+  if (!response.ok) throw new Error(`The Time Tracker service returned ${response.status}.`);
+  const raw = await response.text();
+  let result;
+  try { result = JSON.parse(raw); }
+  catch (_) {
+    throw new Error('The web-app URL returned a web page instead of the timer API. Redeploy the latest Apps Script code and use its /exec URL.');
+  }
   if (!result.ok) throw new Error(result.error || 'Unable to load Time Tracker options.');
   state.bootstrap = result.data;
   el('identity').textContent = result.data.email;
@@ -28,6 +35,7 @@ async function loadBootstrap() {
   setOptions(el('category'), result.data.options.categories, 'Select category');
   setOptions(el('project'), result.data.options.projects, 'No project selected');
   setOptions(el('instrument'), result.data.options.instruments, 'No instrument selected');
+  el('tracker').hidden = false;
   el('entryForm').hidden = false;
 }
 async function startStop() {
@@ -56,7 +64,7 @@ async function saveEntry(event) {
   const body = new URLSearchParams({ api: 'timerSave', entry: JSON.stringify(entry) });
   el('save').disabled = true; el('save').textContent = 'Saving…';
   try {
-    const response = await fetch(TIME_TRACKER_WEB_APP_URL, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body });
+    const response = await fetch(WEB_APP_URL, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body });
     const result = await response.json();
     if (!result.ok) throw new Error(result.error || 'Unable to save entry.');
     await clearTimer(); state.timer = null; el('hours').value = ''; notice('Time entry saved.'); updateTimer();
@@ -64,7 +72,11 @@ async function saveEntry(event) {
   finally { el('save').disabled = false; el('save').textContent = 'Save entry'; }
 }
 async function initialise() {
-  if (!TIME_TRACKER_WEB_APP_URL || TIME_TRACKER_WEB_APP_URL.includes('PASTE_YOUR')) { el('setup').hidden = false; return; }
+  if (!WEB_APP_URL || WEB_APP_URL.includes('PASTE_YOUR')) {
+    el('identity').textContent = 'Setup required';
+    el('setup').hidden = false;
+    return;
+  }
   try {
     await loadBootstrap();
     state.timer = await getStoredTimer();
