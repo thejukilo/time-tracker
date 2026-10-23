@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+</head>
+<body class="bg-light">
+  <div id="dashboardApp" class="container py-5">
+    <h2 class="text-center mb-4">GCS Mol Labs - Resources Dashboard v2</h2>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-4">
+        <label class="form-label">From:</label>
+        <input type="date" class="form-control" v-model="filters.startDate">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">To:</label>
+        <input type="date" class="form-control" v-model="filters.endDate">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Category:</label>
+        <select id="categorySelect" multiple></select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Department:</label>
+        <select id="departmentSelect" multiple></select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Employee:</label>
+        <select id="emailSelect" multiple></select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Instrument:</label>
+        <select id="instrumentSelect" multiple></select>
+      </div>
+    </div>
+
+    <div v-if="loading" class="text-center my-4">
+      <div class="spinner-border text-primary" role="status"></div>
+      <p class="mt-2">Loading entries...</p>
+    </div>
+
+    <div v-else>
+      <div class="row mb-4" v-if="filteredData.length">
+        <div class="col-md-6">
+          <canvas id="categoryChart"></canvas>
+        </div>
+        <div class="col-md-6">
+          <canvas id="barChart"></canvas>
+        </div>
+      </div>
+
+      <div v-if="!filteredData.length" class="text-center text-muted my-4">No data matches the selected filters.</div>
+
+      <table class="table table-bordered table-sm mt-3" v-if="filteredData.length">
+        <thead class="table-light">
+          <tr>
+            <th>Department</th>
+            <th>Category</th>
+            <th>Employee</th>
+            <th>Instrument</th>
+            <th>Project</th>
+            <th>Hours</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="entry in filteredData" :key="entry.startDate + entry.email + entry.category">
+            <td>{{ entry.department }}</td>
+            <td>{{ entry.category }}</td>
+            <td>{{ entry.email }}</td>
+            <td>{{ entry.instrument }}</td>
+            <td>{{ entry.project }}</td>
+            <td>{{ entry.hours }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+    createApp({
+      data() {
+        return {
+          entries: [],
+          filteredData: [],
+          loading: true,
+          filters: {
+            startDate: '',
+            endDate: '',
+            category: [],
+            department: [],
+            email: [],
+            instrument: []
+          },
+          categoryChart: null,
+          barChart: null
+        };
+      },
+      computed: {
+        categories() {
+          return [...new Set(this.entries.map(e => e.category).filter(Boolean))].sort();
+        },
+        departments() {
+          return [...new Set(this.entries.map(e => e.department).filter(Boolean))].sort();
+        },
+        instruments() {
+          return [...new Set(this.entries.map(e => e.instrument).filter(Boolean))].sort();
+        },
+        emails() {
+          return [...new Set(this.entries.map(e => e.email).filter(Boolean))].sort();
+        }
+      },
+      methods: {
+        applyFilters() {
+          this.filteredData = this.entries.filter(e => {
+            const s = this.filters.startDate ? e.startDate >= this.filters.startDate : true;
+            const eD = this.filters.endDate ? e.endDate <= this.filters.endDate : true;
+            const c = this.filters.category.length ? this.filters.category.includes(e.category) : true;
+            const d = this.filters.department.length ? this.filters.department.includes(e.department) : true;
+            const em = this.filters.email.length ? this.filters.email.includes(e.email) : true;
+            const i = this.filters.instrument.length ? this.filters.instrument.includes(e.instrument) : true;
+            return s && eD && c && d && em && i;
+          });
+          this.renderCharts();
+        },
+        renderCharts() {
+          if (this.categoryChart) this.categoryChart.destroy();
+          if (this.barChart) this.barChart.destroy();
+
+          const byCategory = {};
+          this.filteredData.forEach(e => {
+            byCategory[e.category] = (byCategory[e.category] || 0) + (+e.hours || 0);
+          });
+
+          const labels = Object.keys(byCategory);
+          const values = Object.values(byCategory);
+          const colors = ['#36a2eb', '#ff6384', '#ffce56', '#4bc0c0', '#9966ff', '#ff9f40'];
+
+          if (!labels.length) return;
+
+          this.categoryChart = new Chart(document.getElementById('categoryChart'), {
+            type: 'pie',
+            data: {
+              labels,
+              datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length) }]
+            },
+            options: {
+              plugins: {
+                title: { display: true, text: 'Hours by Category' },
+                legend: { position: 'bottom' }
+              },
+              animation: true
+            }
+          });
+
+          this.barChart = new Chart(document.getElementById('barChart'), {
+            type: 'bar',
+            data: {
+              labels,
+              datasets: [{ label: 'Hours', data: values, backgroundColor: colors.slice(0, labels.length) }]
+            },
+            options: {
+              indexAxis: 'y',
+              plugins: {
+                title: { display: true, text: 'Hours by Category (Bar)' },
+                legend: { display: false }
+              },
+              responsive: true,
+              animation: true
+            }
+          });
+        },
+        initChoices() {
+          const init = (id, data, modelKey) => {
+            const choices = new Choices(`#${id}`, { removeItemButton: true });
+            choices.setChoices(data.map(d => ({ value: d, label: d })), 'value', 'label', true);
+            document.getElementById(id).addEventListener('change', e => {
+              this.filters[modelKey] = [...e.target.selectedOptions].map(opt => opt.value);
+            });
+          };
+
+          init('categorySelect', this.categories, 'category');
+          init('departmentSelect', this.departments, 'department');
+          init('emailSelect', this.emails, 'email');
+          init('instrumentSelect', this.instruments, 'instrument');
+        }
+      },
+      watch: {
+        filters: {
+          handler: 'applyFilters',
+          deep: true
+        }
+      },
+      mounted() {
+        google.script.run.withSuccessHandler(data => {
+          this.entries = data;
+          this.loading = false;
+          this.$nextTick(() => {
+            this.initChoices();
+            this.applyFilters();
+          });
+        }).getAllEntries();
+      }
+    }).mount('#dashboardApp');
+  </script>
+</body>
+</html>

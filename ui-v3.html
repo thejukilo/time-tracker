@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Time Tracker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <style>
+    :root { --ink:#24324a; --teal:#294b67; --teal-dark:#203c55; --mint:#f1f4fb; --mint-deep:#e3e9f6; --paper:#fff; --line:#e1e6ef; --muted:#718097; --coral:#db6c70; --gold:#e2a44e; --indigo:#5b5bd6; --sky:#e7f2ff; --lilac:#f0ebff; }
+    * { box-sizing:border-box; }
+    html,body,#app { max-width:100%; overflow-x:hidden; }
+    body { margin:0; color:var(--ink); font:14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:linear-gradient(135deg,#f7f8fc 0%,#fbfcff 55%,#eef3fa 100%); }
+    button,input,select,textarea { font:inherit; }
+    .app { min-width:0; min-height:100vh; display:grid; grid-template-columns:236px minmax(0,1fr); }
+    .sidebar { padding:26px 16px; background:#edf2f8; border-right:1px solid #dce4ef; display:flex; flex-direction:column; gap:26px; }
+    .brand { display:flex; align-items:center; gap:10px; padding:0 10px; font-weight:750; letter-spacing:-.02em; font-size:17px; }
+    .brand-mark { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; color:#fff; background:var(--indigo); box-shadow:0 8px 20px rgba(91,91,214,.22); }
+    .nav-label { margin:0 10px 8px; color:#708688; text-transform:uppercase; letter-spacing:.09em; font-size:10px; font-weight:700; }
+    .nav { display:grid; gap:5px; }
+    .nav button { border:0; background:transparent; color:#52627a; border-radius:10px; padding:10px 12px; text-align:left; cursor:pointer; display:flex; align-items:center; gap:11px; font-weight:600; }
+    .nav button:hover { background:#e1e8f3; }
+    .nav button.active { color:#fff; background:var(--indigo); box-shadow:0 7px 18px rgba(91,91,214,.18); }
+    .nav .badge { margin-left:auto; border-radius:99px; padding:1px 7px; background:rgba(255,255,255,.22); font-size:11px; }
+    .profile { margin-top:auto; padding:13px 11px; border-radius:13px; background:rgba(255,255,255,.55); }
+    .profile small { display:block; color:var(--muted); overflow:hidden; text-overflow:ellipsis; }
+    .profile strong { font-size:12px; text-transform:capitalize; }
+    main { min-width:0; padding:32px clamp(22px,4vw,60px) 48px; max-width:1500px; width:100%; margin:auto; }
+    .topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:26px; }
+    .eyebrow { margin:0 0 5px; color:var(--teal); font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+    h1 { margin:0; font-size:clamp(25px,3vw,34px); line-height:1.15; letter-spacing:-.035em; }
+    .topbar p { margin:7px 0 0; color:var(--muted); }
+    .icon-button { width:38px; height:38px; border:1px solid var(--line); border-radius:11px; background:#fff; color:var(--teal); cursor:pointer; }
+    .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-bottom:22px; }
+    .metric { padding:18px 19px; background:rgba(255,255,255,.9); border:1px solid var(--line); border-radius:16px; box-shadow:0 12px 30px rgba(41,58,91,.06); }
+    .metric:nth-child(1) { background:var(--sky); }.metric:nth-child(2) { background:var(--lilac); }.metric:nth-child(3) { background:#fff7e9; }
+    .metric-label { display:flex; align-items:center; justify-content:space-between; color:var(--muted); font-size:12px; font-weight:650; }
+    .metric-label i { color:var(--teal); font-size:16px; }
+    .metric-value { margin-top:8px; font-size:29px; line-height:1; letter-spacing:-.05em; font-weight:750; }
+    .metric-value span { font-size:13px; letter-spacing:0; color:var(--muted); font-weight:600; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr); gap:20px; align-items:start; }
+    .panel { background:var(--paper); border:1px solid var(--line); border-radius:18px; box-shadow:0 16px 40px rgba(22,89,92,.07); }
+    .panel-header { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:22px 24px 0; }
+    h2 { margin:0; font-size:17px; letter-spacing:-.02em; }
+    .panel-header p { margin:4px 0 0; color:var(--muted); font-size:12px; }
+    .form { padding:22px 24px 24px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    .field { display:grid; gap:6px; }
+    .field.full { grid-column:1 / -1; }
+    label { color:#315e62; font-size:12px; font-weight:700; }
+    input,select,textarea { min-height:42px; width:100%; border:1px solid #cfe2e0; border-radius:10px; padding:0 12px; background:#fbfefd; color:#164c51; outline:none; }
+    textarea { padding:10px 12px; resize:vertical; }
+    input:focus,select:focus,textarea:focus { border-color:var(--teal); box-shadow:0 0 0 3px rgba(13,116,123,.12); }
+    .allocation { grid-column:1/-1; padding:14px; border-radius:12px; background:var(--mint); border:1px solid #d7eae8; }
+    .allocation-head { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:10px; }
+    .allocation-head strong { font-size:12px; }
+    .allocation-note { color:var(--muted); font-size:11px; }
+    .days { display:flex; flex-wrap:wrap; gap:8px; }
+    .day { flex:1 1 88px; padding:8px 9px; border-radius:9px; background:#fff; }
+    .day small { display:block; color:var(--muted); font-size:10px; }
+    .day input { min-height:auto; padding:2px 0 0; border:0; border-radius:0; background:transparent; font-weight:700; box-shadow:none; }
+    .warning { grid-column:1/-1; padding:10px 12px; color:#8b5d18; background:#fff6e5; border-radius:10px; font-size:12px; }
+    .form-actions { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:2px; }
+    .form-actions small { color:var(--muted); }
+    .primary { border:0; border-radius:10px; padding:11px 16px; color:#fff; background:var(--indigo); font-weight:700; cursor:pointer; box-shadow:0 8px 18px rgba(91,91,214,.22); }
+    .primary:hover { background:#4848b8; }
+    .primary:disabled { opacity:.6; cursor:wait; }
+    .danger { border:1px solid #f4c7cb; border-radius:8px; min-height:36px; padding:8px 13px; color:#b95058; background:#fff0f1; font-weight:750; cursor:pointer; }
+    .secondary { border:1px solid #d9ddfa; border-radius:8px; min-height:36px; padding:8px 13px; color:#4d4eb8; background:#f0f0ff; font-weight:750; cursor:pointer; }
+    .recent { padding:8px 18px 12px; }
+    .entry { display:grid; grid-template-columns:36px minmax(0,1fr) auto auto; align-items:center; gap:10px; padding:13px 6px; border-bottom:1px solid #edf2f1; }
+    .entry:last-child { border-bottom:0; }
+    .entry-icon { display:grid; place-items:center; width:33px; height:33px; border-radius:10px; color:var(--teal); background:var(--mint); }
+    .entry strong,.entry small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .entry small { color:var(--muted); font-size:11px; }
+    .hours { color:var(--teal); font-weight:750; font-size:12px; }
+    .empty { padding:35px 20px; color:var(--muted); text-align:center; font-size:13px; }
+    .text-link { border:0; background:transparent; color:var(--teal); padding:0; font-weight:700; cursor:pointer; font-size:12px; }
+    .toast { position:fixed; right:24px; bottom:24px; z-index:20; padding:13px 16px; border-radius:11px; color:#fff; background:var(--teal); box-shadow:0 12px 30px rgba(7,91,98,.25); }
+    .entry-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
+    .modal-backdrop { position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:22px; background:rgba(30,43,66,.48); }
+    .modal { width:min(760px,100%); max-height:calc(100vh - 44px); overflow:auto; background:#fff; border-radius:18px; box-shadow:0 24px 70px rgba(22,33,55,.25); }
+    .modal-header { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:23px 24px 0; }
+    .modal-close { border:0; background:transparent; color:var(--muted); font-size:25px; line-height:1; cursor:pointer; }
+    .modal .form { padding-top:18px; }
+    .dashboard-overlay { position:fixed; inset:0; z-index:25; overflow:auto; padding:30px clamp(18px,4vw,60px); background:linear-gradient(135deg,#f7f8fc 0%,#fbfcff 55%,#eef3fa 100%); }
+    .workspace-overlay { position:fixed; inset:0; z-index:25; overflow:auto; padding:30px clamp(18px,4vw,60px); background:linear-gradient(135deg,#f7f8fc 0%,#fbfcff 55%,#eef3fa 100%); }
+    .workspace-shell { max-width:1050px; margin:0 auto; }
+    .workspace-grid { display:grid; grid-template-columns:minmax(0,.9fr) minmax(330px,1.1fr); gap:20px; align-items:start; }
+    .workspace-list { padding:14px 20px 20px; display:grid; gap:10px; }
+    .workspace-item { padding:13px; border:1px solid var(--line); border-radius:11px; background:#fff; }
+    .workspace-item p { margin:5px 0; color:var(--muted); font-size:12px; white-space:pre-wrap; }
+    .workspace-item small { color:var(--muted); }
+    .admin-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+    .dashboard-shell { max-width:1180px; margin:0 auto; }
+    .dashboard-top { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; margin-bottom:24px; }
+    .dashboard-controls { display:flex; align-items:center; gap:10px; }
+    .dashboard-controls select { min-height:38px; width:auto; }
+    .dashboard-grid { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(260px,.6fr); gap:20px; align-items:start; }
+    .dashboard-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:13px; padding:18px 20px; margin-bottom:20px; }
+    .dashboard-filters .filter-actions { display:flex; gap:9px; align-items:end; }
+    .filter-check { display:flex; align-items:center; gap:8px; color:#315e62; font-size:12px; font-weight:700; }
+    .filter-check input { width:16px; min-height:auto; }
+    .multi-select { position:relative; }
+    .multi-select summary { min-height:42px; display:flex; align-items:center; padding:0 12px; border:1px solid #cfe2e0; border-radius:10px; background:#fbfefd; color:#164c51; cursor:pointer; list-style:none; }
+    .multi-select summary::-webkit-details-marker { display:none; }
+    .multi-select summary::after { content:'⌄'; margin-left:auto; color:var(--muted); font-size:16px; }
+    .multi-menu { position:absolute; z-index:35; top:calc(100% + 6px); left:0; right:0; max-height:260px; overflow:auto; padding:7px; border:1px solid var(--line); border-radius:10px; background:#fff; box-shadow:0 16px 35px rgba(28,43,72,.16); }
+    .user-search { min-height:34px; margin-bottom:6px; padding:0 9px; }
+    .multi-option { display:flex; align-items:center; gap:8px; padding:8px; border-radius:7px; color:var(--ink); font-size:12px; cursor:pointer; }
+    .multi-option:hover { background:var(--mint); }
+    .multi-option input { min-height:auto; width:15px; }
+    .multi-option.all { color:var(--indigo); font-weight:750; border-bottom:1px solid var(--line); border-radius:0; }
+    .chart-panel,.breakdown-panel { padding:22px; }
+    .chart-panel h2,.breakdown-panel h2 { margin-bottom:4px; }
+    .chart-subtitle { margin:0; color:var(--muted); font-size:12px; }
+    .bar-chart { height:240px; display:flex; align-items:flex-end; gap:clamp(5px,1.2vw,13px); margin-top:24px; padding:0 2px 25px; border-bottom:1px solid var(--line); }
+    .bar-slot { flex:1 1 0; min-width:18px; height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:7px; }
+    .bar { width:100%; max-width:36px; min-height:5px; border-radius:7px 7px 3px 3px; background:linear-gradient(180deg,#8585e8,#5b5bd6); box-shadow:0 6px 13px rgba(91,91,214,.18); }
+    .bar-slot small { width:42px; overflow:hidden; color:var(--muted); font-size:9px; text-align:center; white-space:nowrap; }
+    .legend-row { display:flex; justify-content:space-between; gap:12px; margin-top:12px; color:var(--muted); font-size:12px; }
+    .breakdown { display:grid; gap:15px; margin-top:22px; }
+    .breakdown-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 12px; align-items:center; }
+    .breakdown-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:650; }
+    .breakdown-row small { color:var(--muted); }
+    .breakdown-track { grid-column:1/-1; height:7px; border-radius:99px; overflow:hidden; background:#edf0f7; }
+    .breakdown-fill { height:100%; border-radius:inherit; background:linear-gradient(90deg,#67b6cf,#5b5bd6); }
+    .category-dashboard { grid-template-columns:1fr; }
+    .category-bars { display:grid; gap:17px; margin-top:24px; }
+    .category-bar-row { display:grid; grid-template-columns:minmax(120px,.7fr) minmax(0,2fr) 62px; gap:12px; align-items:center; }
+    .category-bar-row .breakdown-track { grid-column:auto; }
+    .category-bar-row .breakdown-fill { background:var(--category-color,#5b5bd6); box-shadow:0 3px 9px color-mix(in srgb,var(--category-color,#5b5bd6) 28%,transparent); }
+    .category-percentage { color:var(--muted); font-size:12px; font-weight:700; text-align:right; }
+    .dashboard-empty { padding:56px 10px; text-align:center; color:var(--muted); }
+    .dashboard-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:9px; margin:20px 0; }
+    .report-table-panel { overflow:hidden; }
+    .report-table-head { display:flex; justify-content:space-between; align-items:end; gap:12px; padding:21px 22px 12px; }
+    .table-wrap { overflow:auto; max-height:480px; border-top:1px solid var(--line); }
+    .report-table { width:100%; min-width:0; table-layout:fixed; border-collapse:collapse; font-size:12px; }
+    .report-table th { position:sticky; top:0; z-index:1; resize:horizontal; overflow:auto; min-width:70px; padding:10px 13px; color:#52627a; background:#f6f8fc; font-size:10px; text-align:left; text-transform:uppercase; letter-spacing:.06em; }
+    .report-table th:nth-child(1){width:17%}.report-table th:nth-child(2){width:16%}.report-table th:nth-child(3){width:23%}.report-table th:nth-child(4){width:16%}.report-table th:nth-child(5){width:20%}.report-table th:nth-child(6){width:8%}
+    .report-table td { overflow:hidden; padding:11px 13px; border-top:1px solid #edf0f5; text-overflow:ellipsis; white-space:nowrap; }
+    .report-table td:last-child,.report-table th:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+    .report-table tbody tr:hover { background:#fafbfe; }
+    @media print { body { background:#fff; } .app,.sidebar,.dashboard-filters,.dashboard-actions,.icon-button,.toast { display:none !important; } .dashboard-overlay { position:static !important; overflow:visible !important; padding:0 !important; background:#fff !important; } .dashboard-shell { max-width:none !important; } .dashboard-top { margin-bottom:16px; } .table-wrap { max-height:none !important; overflow:visible !important; } .report-table th { position:static; } }
+    .loading,.loading-stack { min-height:100vh; display:grid; place-items:center; color:var(--teal); font-weight:700; }
+    .loading-stack { min-height:230px; gap:12px; align-content:center; justify-items:center; color:var(--muted); font-size:12px; }
+    .orbit-loader { position:relative; width:42px; height:42px; border:3px solid #dfe5f5; border-top-color:var(--indigo); border-radius:50%; animation:orbit 1s linear infinite; }
+    .orbit-loader::after { content:''; position:absolute; width:9px; height:9px; top:1px; right:1px; border-radius:50%; background:#42afc0; box-shadow:-24px 23px 0 #e1a34a; }
+    @keyframes orbit { to { transform:rotate(360deg); } }
+    @media (max-width:900px) { .app{grid-template-columns:1fr}.sidebar{min-width:0;width:100%;overflow:hidden;padding:12px 16px; flex-direction:row; align-items:center; gap:12px}.brand{flex:0 0 auto;padding:0}.nav-label,.profile{display:none}.nav{display:flex; flex:1 1 auto; min-width:0; max-width:100%; overflow-x:auto; overflow-y:hidden; margin-left:auto}.nav button{white-space:nowrap;padding:8px 10px}.nav button span:not(.badge){display:none}.workspace,.workspace-grid,.dashboard-grid,.admin-columns{grid-template-columns:1fr}.dashboard-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.cards{grid-template-columns:repeat(3,minmax(130px,1fr));overflow:auto}.metric{min-width:130px} }
+    @media (max-width:560px) { main{padding:22px 16px}.topbar{margin-bottom:18px}.cards{gap:10px}.metric{padding:14px}.metric-value{font-size:24px}.form{grid-template-columns:1fr;padding:18px}.panel-header{padding:18px 18px 0}.form-actions{align-items:stretch;flex-direction:column}.primary{width:100%}.entry{grid-template-columns:36px 1fr auto}.entry-actions{grid-column:2/-1;justify-content:flex-start}.modal-backdrop{padding:10px}.dashboard-overlay{padding:20px 16px}.dashboard-top{align-items:stretch;flex-direction:column}.dashboard-controls{justify-content:space-between}.dashboard-filters{grid-template-columns:1fr}.category-bar-row{grid-template-columns:1fr 50px;gap:7px}.category-bar-row .breakdown-track{grid-column:1/-1;grid-row:2}.bar-chart{gap:5px}.bar-slot:nth-child(even) small{visibility:hidden} }
+    @media (max-width:700px) {
+      .sidebar { position:sticky; top:0; z-index:18; box-shadow:0 4px 16px rgba(30,43,66,.08); }
+      .nav { scrollbar-width:none; }
+      .nav::-webkit-scrollbar { display:none; }
+      .nav button { min-height:42px; flex:0 0 auto; }
+      .nav button span:not(.badge) { display:none; }
+      .workspace-overlay,.dashboard-overlay { padding:18px 14px calc(26px + env(safe-area-inset-bottom)); }
+      .workspace-item { padding:12px; }
+      .workspace-item .entry-actions { justify-content:flex-start; flex-wrap:wrap; }
+      .dashboard-actions { justify-content:stretch; }
+      .dashboard-actions button { flex:1 1 150px; }
+      .report-table-head { align-items:flex-start; flex-direction:column; padding:18px 16px 12px; }
+      .report-table { min-width:720px; }
+      .table-wrap { -webkit-overflow-scrolling:touch; }
+      .modal { border-radius:15px; }
+      .modal-header { padding:18px 18px 0; }
+      .modal .form { padding:16px 18px 18px; }
+      .toast { right:14px; left:14px; bottom:calc(14px + env(safe-area-inset-bottom)); text-align:center; }
+    }
+    @media (max-width:430px) {
+      .sidebar { padding:10px 12px; }
+      .brand { font-size:0; white-space:nowrap; }
+      .brand-mark { width:30px; height:30px; border-radius:9px; }
+      .nav { gap:3px; }
+      .nav button { padding:8px 9px; gap:6px; font-size:11px; }
+      .nav button span:not(.badge) { display:none; }
+      main { padding:18px 12px 32px; }
+      h1 { font-size:27px; }
+      .cards { grid-template-columns:1fr; overflow:visible; }
+      .metric { min-width:0; }
+      .panel { border-radius:14px; }
+      .panel-header { padding:16px 16px 0; }
+      .form { padding:16px; gap:13px; }
+      .allocation { padding:11px; }
+      .allocation-head { align-items:flex-start; flex-direction:column; }
+      .days { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .day { min-width:0; }
+      .entry { grid-template-columns:32px minmax(0,1fr) auto; gap:8px; }
+      .entry-icon { width:30px; height:30px; }
+      .entry .hours { align-self:start; padding-top:3px; }
+      .entry-actions { grid-column:1/-1; }
+      .entry-actions button { flex:1 1 auto; }
+      .danger,.secondary { min-height:40px; }
+      .dashboard-top { margin-bottom:18px; }
+      .dashboard-filters { padding:16px; }
+      .multi-menu { position:fixed; left:14px; right:14px; top:auto; bottom:14px; max-height:50vh; }
+      .category-bar-row { grid-template-columns:1fr 46px; }
+      .category-percentage { font-size:11px; }
+      .workspace-list { padding:12px 14px 16px; }
+      .admin-columns { gap:14px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div v-if="loading" class="loading"><div class="loading-stack"><div class="orbit-loader"></div><span>Loading your time tracker…</span></div></div>
+    <div v-else class="app">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark"><i class="bi bi-clock-history"></i></span> Time Tracker</div>
+        <div><p class="nav-label">Workspace</p><nav class="nav">
+          <button :class="{active: screen === 'overview' && !dashboardOpen}" @click="closeHistory"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span></button>
+          <button :class="{active: screen === 'history'}" @click="openHistory"><i class="bi bi-pencil-square"></i><span>Manage entries</span></button>
+          <button :class="{active: dashboardOpen}" @click="openDashboard"><i class="bi bi-bar-chart-line"></i><span>Dashboard</span></button>
+          <button :class="{active:suggestionsOpen}" @click="openSuggestions"><i class="bi bi-lightbulb"></i><span>Suggestions</span></button>
+          <button :class="{active:feedbackOpen}" @click="openFeedback"><i class="bi bi-chat-square-text"></i><span>Feedback</span></button>
+          <button v-if="isAdmin" :class="{active:adminOpen}" @click="openAdministration"><i class="bi bi-shield-check"></i><span>Administration</span></button>
+        </nav></div>
+        <div class="profile"><strong>{{ role }}</strong><small>{{ email }}</small></div>
+      </aside>
+      <main>
+        <header v-if="screen === 'overview'" class="topbar"><div><p class="eyebrow">GCS Mol Labs</p><h1>Time Tracker Tool</h1></div><button class="icon-button" aria-label="Dropdown settings" @click="openSettings"><i class="bi bi-gear"></i></button></header>
+        <section v-if="screen === 'overview'" class="cards"><article class="metric"><div class="metric-label">This week <i class="bi bi-calendar-week"></i></div><div class="metric-value">{{ formatHours(summary.weekHours) }} <span>hours</span></div></article><article class="metric"><div class="metric-label">This month <i class="bi bi-calendar3"></i></div><div class="metric-value">{{ formatHours(summary.monthHours) }} <span>hours</span></div></article><article class="metric"><div class="metric-label">Recent entries <i class="bi bi-journal-text"></i></div><div class="metric-value">{{ recentEntries.length }} <span>shown</span></div></article></section>
+        <section v-if="screen === 'overview'" class="workspace"><article class="panel"><header class="panel-header"><div><h2>New time entry</h2><p>Project and instrument fields appear when relevant.</p></div></header>
+          <form class="form" @submit.prevent="saveEntry">
+            <div class="field"><label for="startDate">Start date</label><input id="startDate" type="date" v-model="form.startDate" required></div>
+            <div class="field"><label for="endDate">End date</label><input id="endDate" type="date" v-model="form.endDate" required></div>
+            <div class="field"><label for="department">Department</label><select id="department" v-model="form.departmentId" required><option value="" disabled>Select department</option><option v-for="item in options.departments" :key="item.id" :value="item.id">{{ item.name }}</option></select></div>
+            <div class="field"><label for="category">Category</label><select id="category" v-model="form.categoryId" required><option value="" disabled>Select category</option><option v-for="item in options.categories" :key="item.id" :value="item.id">{{ item.name }}</option></select></div>
+            <div v-if="selectedCategory && selectedCategory.requires_project" class="field"><label for="project">Project <span class="allocation-note">optional</span></label><select id="project" v-model="form.projectId"><option value="">No project selected</option><option v-for="item in options.projects" :key="item.id" :value="item.id">{{ item.name }}</option></select></div>
+            <div v-if="selectedCategory && selectedCategory.requires_instrument" class="field"><label for="instrument">Instrument <span class="allocation-note">optional</span></label><select id="instrument" v-model="form.instrumentId"><option value="">No instrument selected</option><option v-for="item in options.instruments" :key="item.id" :value="item.id">{{ item.name }}</option></select></div>
+            <div class="field full"><label for="hours">Total hours</label><input id="hours" type="number" min="0" max="744" step="0.01" v-model.number="form.hours" required></div>
+            <div v-if="showProjectWarning" class="warning"><i class="bi bi-info-circle me-1"></i> A project has not been selected. You can still save this entry.</div>
+            <div v-if="allocation.length" class="allocation"><div class="allocation-head"><strong>Daily allocation</strong><span class="allocation-note">Adjust the suggested weekday split if needed.</span></div><div class="days"><div v-for="day in allocation" :key="day.workDate" class="day"><small>{{ displayDay(day.workDate) }}</small><input type="number" min="0" step="0.01" v-model.number="day.hours" @change="syncTotal"></div></div></div>
+            <div class="form-actions"><small>{{ allocationMessage }}</small><button class="primary" type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save entry' }}</button></div>
+          </form>
+        </article>
+        <article class="panel"><header class="panel-header"><div><h2>Recent activity</h2><p>Your most recently saved entries.</p></div><button class="text-link" @click="openHistory">View history</button></header><div class="recent"><div v-if="recentEntries.length"><div v-for="entry in recentEntries" :key="entry.id" class="entry"><div class="entry-icon"><i class="bi bi-clock"></i></div><div><strong>{{ entry.categoryName }}</strong><small>{{ entry.departmentName }} · {{ entry.startDate }}</small></div><span class="hours">{{ entry.hours }} h</span></div></div><div v-else class="empty">No entries yet. Your recent activity will appear here.</div></div></article>
+        </section>
+        <section v-else class="panel"><header class="panel-header"><div><p class="eyebrow">My workspace</p><h1 style="font-size:26px">Entry history</h1><p>Find any entry, including records from previous years.</p></div><button class="icon-button" type="button" @click="closeHistory" aria-label="Close entry history" title="Close"><i class="bi bi-x-lg"></i></button></header><form class="form" @submit.prevent="loadHistory(1)"><div class="field"><label>From</label><input type="date" v-model="historyFilters.startDate"></div><div class="field"><label>To</label><input type="date" v-model="historyFilters.endDate"></div><div class="field"><label>Department</label><select v-model="historyFilters.departmentId"><option value="">All departments</option><option v-for="item in options.departments" :key="item.id" :value="item.id">{{item.name}}</option></select></div><div class="field"><label>Category</label><select v-model="historyFilters.categoryId"><option value="">All categories</option><option v-for="item in options.categories" :key="item.id" :value="item.id">{{item.name}}</option></select></div><div class="form-actions"><small>{{historyLoading ? 'Loading entries…' : `${historyEntries.length} entries on this page`}}</small><button class="primary" type="submit">Apply filters</button></div></form><div class="recent"><div v-if="!historyLoading && !historyEntries.length" class="empty">No entries match these filters.</div><div v-for="entry in historyEntries" :key="entry.id" class="entry"><div class="entry-icon"><i class="bi bi-clock-history"></i></div><div><strong>{{entry.categoryName}}</strong><small>{{entry.startDate}}<span v-if="entry.endDate !== entry.startDate"> to {{entry.endDate}}</span> · {{entry.departmentName}}</small></div><span class="hours">{{entry.hours}} h</span><button class="danger" type="button" @click="deleteHistoryEntry(entry)">Delete</button></div><div class="form-actions"><button class="secondary" type="button" :disabled="historyPage===1" @click="loadHistory(historyPage-1)">Previous</button><small>Page {{historyPage}}</small><button class="secondary" type="button" :disabled="!historyHasMore" @click="loadHistory(historyPage+1)">Next</button></div></div></section>
+      </main>
+    </div>
+    <div v-if="settingsOpen" class="workspace-overlay"><main class="workspace-shell"><header class="dashboard-top"><div><p class="eyebrow">Preferences</p><h1>Dropdown settings</h1><p>Choose the options you use most often. Leave a list empty to keep all options visible.</p></div><button class="icon-button" @click="settingsOpen=false"><i class="bi bi-x-lg"></i></button></header><article class="panel"><form class="form" @submit.prevent="saveSettings"><div class="field"><label>Departments</label><select multiple size="7" v-model="settingsPreferences.departmentIds"><option v-for="item in settingsOptions.departments" :key="item.id" :value="item.id">{{item.name}}</option></select></div><div class="field"><label>Categories</label><select multiple size="7" v-model="settingsPreferences.categoryIds"><option v-for="item in settingsOptions.categories" :key="item.id" :value="item.id">{{item.name}}</option></select></div><div class="field"><label>Projects</label><select multiple size="7" v-model="settingsPreferences.projectIds"><option v-for="item in settingsOptions.projects" :key="item.id" :value="item.id">{{item.name}}</option></select></div><div class="field"><label>Instruments</label><select multiple size="7" v-model="settingsPreferences.instrumentIds"><option v-for="item in settingsOptions.instruments" :key="item.id" :value="item.id">{{item.name}}</option></select></div><div class="form-actions"><small>Use Ctrl/Cmd to choose multiple options.</small><button class="primary" :disabled="settingsSaving">{{settingsSaving?'Saving…':'Save preferences'}}</button></div></form></article></main></div>
+    <div v-if="suggestionsOpen" class="workspace-overlay"><main class="workspace-shell"><header class="dashboard-top"><div><p class="eyebrow">My workspace</p><h1>Suggestions</h1><p>Propose new reference items or removal of existing ones.</p></div><button class="icon-button" @click="suggestionsOpen=false"><i class="bi bi-x-lg"></i></button></header><section class="workspace-grid"><article class="panel"><header class="panel-header"><div><h2>New suggestion</h2><p>Items are reviewed by an administrator.</p></div></header><form class="form" @submit.prevent="saveSuggestion"><div class="field"><label>Item type</label><select v-model="suggestionForm.itemType" @change="suggestionForm.targetId='';suggestionForm.itemName=''"><option value="departments">Department</option><option value="categories">Category</option><option value="projects">Project</option><option value="instruments">Instrument</option></select></div><div class="field"><label>Action</label><select v-model="suggestionForm.action" @change="suggestionForm.targetId='';suggestionForm.itemName=''"><option value="add">Add new item</option><option value="remove">Remove existing item</option></select></div><div v-if="suggestionForm.action==='add'" class="field full"><label>Suggested name</label><input v-model.trim="suggestionForm.itemName" maxlength="160" required></div><div v-else class="field full"><label>Item to remove</label><select v-model="suggestionForm.targetId" required><option value="" disabled>Select an item</option><option v-for="item in suggestionItems" :key="item.id" :value="item.id">{{item.name}}</option></select></div><div class="form-actions"><small>{{suggestionSaving ? 'Sending suggestion…' : 'You will see its status here.'}}</small><button class="primary" :disabled="suggestionSaving">Submit suggestion</button></div></form></article><article class="panel"><header class="panel-header"><div><h2>My suggestions</h2><p>Your submitted requests.</p></div></header><div class="workspace-list"><div v-if="!mySuggestions.length" class="empty">No suggestions yet.</div><div v-for="item in mySuggestions" :key="item.id" class="workspace-item"><strong>{{item.action === 'add' ? 'Add' : 'Remove'}} {{item.item_name}}</strong><p>{{item.item_type}} · {{item.status}}</p><small>{{formatDateTime(item.created_at)}}</small></div></div></article></section></main></div>
+    <div v-if="feedbackOpen" class="workspace-overlay"><main class="workspace-shell"><header class="dashboard-top"><div><p class="eyebrow">My workspace</p><h1>Feedback</h1><p>Tell us what would make the tracker better.</p></div><button class="icon-button" @click="feedbackOpen=false"><i class="bi bi-x-lg"></i></button></header><section class="workspace-grid"><article class="panel"><header class="panel-header"><div><h2>Send feedback</h2><p>Administrators can reply directly here.</p></div></header><form class="form" @submit.prevent="saveFeedback"><div class="field full"><label>Your feedback</label><textarea v-model.trim="feedbackMessage" rows="7" maxlength="4000" required></textarea></div><div class="form-actions"><small>{{feedbackSaving ? 'Sending feedback…' : 'Be specific where possible.'}}</small><button class="primary" :disabled="feedbackSaving">Send feedback</button></div></form></article><article class="panel"><header class="panel-header"><div><h2>My feedback</h2><p>Responses from the team.</p></div></header><div class="workspace-list"><div v-if="!myFeedback.length" class="empty">No feedback yet.</div><div v-for="item in myFeedback" :key="item.id" class="workspace-item"><strong>{{item.status}}</strong><p>{{item.message}}</p><p v-if="item.reply"><strong>Reply:</strong> {{item.reply}}</p><small>{{formatDateTime(item.created_at)}}</small></div></div></article></section></main></div>
+    <div v-if="adminOpen" class="workspace-overlay"><main class="workspace-shell"><header class="dashboard-top"><div><p class="eyebrow">Administration</p><h1>Review workspace</h1><p>Approve suggestions and respond to feedback.</p></div><button class="icon-button" @click="adminOpen=false"><i class="bi bi-x-lg"></i></button></header><div v-if="adminLoading" class="loading-stack"><div class="orbit-loader"></div><span>Loading administration…</span></div><template v-else><section class="admin-columns"><article class="panel"><header class="panel-header"><div><h2>Pending suggestions</h2><p>{{adminData.suggestions.length}} awaiting review</p></div></header><div class="workspace-list"><div v-if="!adminData.suggestions.length" class="empty">Nothing pending.</div><div v-for="item in adminData.suggestions" :key="item.id" class="workspace-item"><strong>{{item.action}} · {{item.item_name}}</strong><p>{{item.item_type}} · submitted by {{item.submitted_by}}</p><div class="entry-actions"><button class="secondary" @click="reviewSuggestion(item,'rejected')">Reject</button><button class="primary" @click="reviewSuggestion(item,'approved')">Approve</button></div></div></div></article><article class="panel"><header class="panel-header"><div><h2>Feedback conversations</h2><p>Replies remain visible after sending.</p></div></header><div class="workspace-list"><div v-if="!adminData.feedback.length" class="empty">No feedback yet.</div><div v-for="item in adminData.feedback" :key="item.id" class="workspace-item"><strong>{{item.submitted_by}} · {{item.status}}</strong><p><strong>User</strong><br>{{item.message}}</p><p v-if="item.reply" style="background:var(--lilac);padding:9px;border-radius:8px"><strong>You</strong><br>{{item.reply}}</p><template v-else><textarea v-model="item.draftReply" rows="3" placeholder="Write a reply"></textarea><div class="entry-actions" style="margin-top:8px"><button class="primary" @click="replyFeedback(item)">Send reply</button></div></template></div></div></article></section><section v-if="role==='superadmin'" class="panel" style="margin-top:20px"><header class="panel-header"><div><h2>Current administrators</h2><p>Assign, promote, or revoke roles for known users.</p></div></header><div class="workspace-list"><div v-for="item in adminData.roles" :key="item.email" class="workspace-item"><strong>{{item.email}}</strong><p>{{item.role}}</p><div class="entry-actions"><button class="secondary" @click="adminEmail=item.email;setAdminRole('admin')">Make admin</button><button class="primary" @click="adminEmail=item.email;setAdminRole('superadmin')">Make superadmin</button><button class="danger" @click="adminEmail=item.email;setAdminRole('user')">Revoke</button></div></div></div><div class="form"><div class="field"><label>Select user</label><select v-model="adminEmail"><option value="" disabled>Select a user</option><option v-for="email in dashboardUsers" :key="email" :value="email">{{email}}</option></select></div><div class="form-actions"><small>{{adminData.roles.length}} current role assignments</small><div class="entry-actions"><button class="secondary" :disabled="!adminEmail" @click="setAdminRole('admin')">Make admin</button><button class="primary" :disabled="!adminEmail" @click="setAdminRole('superadmin')">Make superadmin</button><button class="danger" :disabled="!adminEmail" @click="setAdminRole('user')">Revoke</button></div></div></div></section></template></main></div>
+    <div v-if="dashboardOpen" class="dashboard-overlay">
+      <main class="dashboard-shell">
+        <header class="dashboard-top"><div><p class="eyebrow">My workspace</p><h1>Personal dashboard</h1><p>Hours logged from {{dashboard.period.startDate || '…'}} to {{dashboard.period.endDate || '…'}}<span v-if="isAdmin"> · {{dashboardUserScope}}</span>.</p></div><div class="dashboard-controls"><button class="icon-button" type="button" @click="closeDashboard" aria-label="Close dashboard" title="Close"><i class="bi bi-x-lg"></i></button></div></header>
+        <form class="panel dashboard-filters" @submit.prevent="loadDashboard">
+          <div class="field"><label>Quick range</label><select v-model="dashboardFilters.preset" @change="applyDashboardPreset"><option value="custom">Custom range</option><option value="lastWeek">Last week</option><option value="lastMonth">Last month</option><option value="lastYear">Last year</option></select></div>
+          <div class="field"><label>From</label><input type="date" v-model="dashboardFilters.startDate" @change="dashboardFilters.preset='custom'"></div>
+          <div class="field"><label>To</label><input type="date" v-model="dashboardFilters.endDate" @change="dashboardFilters.preset='custom'"></div>
+          <div class="field"><label>Category</label><select v-model="dashboardFilters.categoryId"><option value="">All categories</option><option v-for="item in options.categories" :key="item.id" :value="item.id">{{item.name}}</option></select></div>
+          <div class="field"><label>Department</label><select v-model="dashboardFilters.departmentId"><option value="">All departments</option><option v-for="item in options.departments" :key="item.id" :value="item.id">{{item.name}}</option></select></div>
+          <div class="field"><label>Project</label><select v-model="dashboardFilters.projectId"><option value="">All projects</option><option v-for="item in options.projects" :key="item.id" :value="item.id">{{item.name}}</option></select></div>
+          <div class="field"><label>Instrument</label><select v-model="dashboardFilters.instrumentId"><option value="">All instruments</option><option v-for="item in options.instruments" :key="item.id" :value="item.id">{{item.name}}</option></select></div>
+          <div v-if="isAdmin" class="field"><label>Users</label><details class="multi-select"><summary>{{dashboardUserPickerLabel}}</summary><div class="multi-menu"><input v-model.trim="dashboardUserSearch" class="user-search" type="search" placeholder="Search users" @click.stop><label class="multi-option all"><input type="checkbox" :checked="dashboardFilters.allUsers" @change="toggleDashboardAllUsers($event.target.checked)"> All users</label><label v-for="email in filteredDashboardUsers" :key="email" class="multi-option"><input type="checkbox" :value="email" v-model="dashboardFilters.userEmails" @change="dashboardFilters.allUsers=false"> {{email}}</label><div v-if="dashboardUsersLoading" class="multi-option">Loading users…</div><div v-else-if="!filteredDashboardUsers.length" class="multi-option">No matching users.</div></div></details></div>
+          <div class="filter-actions"><button class="primary" type="submit" :disabled="dashboardLoading">Apply filters</button></div>
+        </form>
+        <div v-if="dashboardLoading" class="loading-stack"><div class="orbit-loader"></div><span>Building your dashboard…</span></div>
+        <template v-else>
+          <section class="cards"><article class="metric"><div class="metric-label">Hours logged <i class="bi bi-clock-history"></i></div><div class="metric-value">{{formatHours(dashboard.totalHours)}} <span>hours</span></div></article><article class="metric"><div class="metric-label">Weekly average <i class="bi bi-calendar-week"></i></div><div class="metric-value">{{formatHours(dashboard.averagePerWeek)}} <span>hours</span></div></article><article class="metric"><div class="metric-label">Categories used <i class="bi bi-pie-chart"></i></div><div class="metric-value">{{dashboard.categories.length}} <span>categories</span></div></article></section>
+          <section class="dashboard-grid category-dashboard"><article class="panel chart-panel"><h2>Time by category</h2><p class="chart-subtitle">Percentage of your logged hours in the selected period.</p><div v-if="dashboard.categories.length" class="category-bars"><div v-for="(item,index) in dashboard.categories" :key="item.name" class="category-bar-row"><span class="breakdown-name">{{item.name}}</span><div class="breakdown-track"><div class="breakdown-fill" :style="categoryStyle(item.hours, dashboard.totalHours, index)"></div></div><span class="category-percentage">{{categoryPercentage(item.hours, dashboard.totalHours)}}%</span></div></div><div v-else class="dashboard-empty">No category data yet for these filters.</div></article></section>
+          <div class="dashboard-actions"><button class="secondary" type="button" @click="exportDashboardCsv" :disabled="!dashboard.rows.length"><i class="bi bi-filetype-csv"></i> Export CSV</button><button class="primary" type="button" @click="printDashboard" :disabled="!dashboard.rows.length"><i class="bi bi-file-earmark-pdf"></i> Print / Save PDF</button></div>
+          <article class="panel report-table-panel"><header class="report-table-head"><div><h2>Resource summary</h2><p class="chart-subtitle">Grouped hours for the selected filters.</p></div><small>{{dashboard.rows.length}} rows · {{formatHours(dashboard.totalHours)}} hours</small></header><div v-if="dashboard.rows.length" class="table-wrap"><table class="report-table"><thead><tr><th>Department</th><th>Category</th><th>User</th><th>Instrument</th><th>Project</th><th>Hours</th></tr></thead><tbody><tr v-for="row in dashboard.rows" :key="`${row.departmentName}|${row.categoryName}|${row.userEmail}|${row.instrumentName}|${row.projectName}`"><td>{{row.departmentName}}</td><td>{{displayTableCategory(row.categoryName)}}</td><td>{{row.userEmail}}</td><td>{{row.instrumentName || '—'}}</td><td>{{row.projectName || '—'}}</td><td>{{formatHours(row.hours)}}</td></tr></tbody></table></div><div v-else class="dashboard-empty">No resource rows match these filters.</div></article>
+        </template>
+      </main>
+    </div>
+    <div v-if="editing" class="modal-backdrop" @click.self="closeEditor">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-entry-title">
+        <header class="modal-header"><div><p class="eyebrow">Entry history</p><h2 id="edit-entry-title">Edit entry</h2><p>Changes are saved only to your own record.</p></div><button class="modal-close" type="button" @click="closeEditor" aria-label="Close">×</button></header>
+        <form class="form" @submit.prevent="saveEditedEntry">
+          <div class="field"><label>Start date</label><input type="date" v-model="editing.startDate" required></div>
+          <div class="field"><label>End date</label><input type="date" v-model="editing.endDate" required></div>
+          <div class="field"><label>Department</label><select v-model="editing.departmentId" required><option v-if="!hasOption(options.departments, editing.departmentId)" :value="editing.departmentId">{{editing.departmentName || 'Archived department'}} (archived)</option><option v-for="item in options.departments" :key="item.id" :value="item.id">{{item.name}}</option></select></div>
+          <div class="field"><label>Category</label><select v-model="editing.categoryId" required><option v-if="!hasOption(options.categories, editing.categoryId)" :value="editing.categoryId">{{editing.categoryName || 'Archived category'}} (archived)</option><option v-for="item in options.categories" :key="item.id" :value="item.id">{{item.name}}</option></select></div>
+          <div v-if="editingCategory && editingCategory.requires_project" class="field"><label>Project <span class="allocation-note">optional</span></label><select v-model="editing.projectId"><option value="">No project selected</option><option v-if="editing.projectId && !hasOption(options.projects, editing.projectId)" :value="editing.projectId">{{editing.projectName || 'Archived project'}} (archived)</option><option v-for="item in options.projects" :key="item.id" :value="item.id">{{item.name}}</option></select></div>
+          <div v-if="editingCategory && editingCategory.requires_instrument" class="field"><label>Instrument <span class="allocation-note">optional</span></label><select v-model="editing.instrumentId"><option value="">No instrument selected</option><option v-if="editing.instrumentId && !hasOption(options.instruments, editing.instrumentId)" :value="editing.instrumentId">{{editing.instrumentName || 'Archived instrument'}} (archived)</option><option v-for="item in options.instruments" :key="item.id" :value="item.id">{{item.name}}</option></select></div>
+          <div class="field full"><label>Total hours</label><input type="number" min="0" max="744" step="0.01" v-model.number="editing.hours" required></div>
+          <div class="allocation"><div class="allocation-head"><div><strong>Daily allocation</strong><span class="allocation-note"> Edit the values directly, or reset to an even weekday split.</span></div><button class="text-link" type="button" @click="redistributeEditedHours">Reset split</button></div><div class="days"><div v-for="day in editing.dailyHours" :key="day.workDate" class="day"><small>{{displayDay(day.workDate)}}</small><input type="number" min="0" step="0.01" v-model.number="day.hours"></div></div></div>
+          <div class="form-actions"><small>{{editingAllocationTotal.toFixed(2)}} of {{Number(editing.hours || 0).toFixed(2)}} hours allocated</small><div class="entry-actions"><button class="secondary" type="button" @click="closeEditor">Cancel</button><button class="primary" type="submit" :disabled="savingEdit">{{savingEdit ? 'Saving…' : 'Save changes'}}</button></div></div>
+        </form>
+      </section>
+    </div>
+    <div v-if="notice" class="toast">{{ notice }}</div>
+  </div>
+  <script>
+    const { createApp } = Vue;
+    createApp({
+      data() { const today = new Date().toISOString().slice(0, 10); return { loading:true, saving:false, savingEdit:false, dashboardLoading:false, dashboardUsersLoading:false, dashboardUserSearch:'', settingsOpen:false, settingsSaving:false, settingsOptions:{departments:[],categories:[],projects:[],instruments:[]}, settingsPreferences:{departmentIds:[],categoryIds:[],projectIds:[],instrumentIds:[]}, dashboardOpen:false, suggestionsOpen:false, feedbackOpen:false, adminOpen:false, suggestionSaving:false, feedbackSaving:false, adminLoading:false, dashboardUsers:[], mySuggestions:[], myFeedback:[], suggestionForm:{itemType:'categories',action:'add',itemName:'',targetId:''}, feedbackMessage:'', adminEmail:'', adminData:{suggestions:[],feedback:[],roles:[]}, dashboard:{period:{startDate:'',endDate:''},selectedUserCount:0,allUsers:false,totalHours:0,averagePerWeek:0,categories:[],rows:[]}, dashboardFilters:{preset:'lastMonth',startDate:'',endDate:'',categoryId:'',departmentId:'',projectId:'',instrumentId:'',userEmails:[],allUsers:false}, notice:'', screen:'overview', email:'', role:'user', isAdmin:false, summary:{weekHours:0,monthHours:0}, options:{departments:[],categories:[],projects:[],instruments:[]}, recentEntries:[], historyLoading:false, historyEntries:[], historyPage:1, historyHasMore:false, historyFilters:{startDate:'',endDate:'',departmentId:'',categoryId:''}, form:{startDate:today,endDate:today,departmentId:'',categoryId:'',projectId:'',instrumentId:'',hours:null}, allocation:[], editing:null }; },
+      computed: { selectedCategory() { return this.options.categories.find(item => item.id === this.form.categoryId); }, editingCategory() { return this.editing && this.options.categories.find(item => item.id === this.editing.categoryId); }, suggestionItems() { return this.options[this.suggestionForm.itemType] || []; }, filteredDashboardUsers() { const query=this.dashboardUserSearch.trim().toLowerCase(); return query ? this.dashboardUsers.filter(email=>email.toLowerCase().includes(query)) : this.dashboardUsers; }, dashboardUserPickerLabel() { if(this.dashboardFilters.allUsers) return 'All users'; const count=this.dashboardFilters.userEmails.length; return count ? (count===1 ? this.dashboardFilters.userEmails[0] : `${count} users selected`) : 'Users'; }, dashboardUserScope() { if(this.dashboard.allUsers) return 'all users'; const count=Number(this.dashboard.selectedUserCount)||0; return count>1 ? `${count} selected users` : 'my data'; }, showProjectWarning() { return this.selectedCategory && this.selectedCategory.requires_project && !this.form.projectId; }, allocationTotal() { return this.allocation.reduce((total, day) => total + (Number(day.hours) || 0), 0); }, editingAllocationTotal() { return this.editing ? this.editing.dailyHours.reduce((total, day) => total + (Number(day.hours) || 0), 0) : 0; }, allocationMessage() { return this.allocation.length ? `${this.allocationTotal.toFixed(2)} of ${(Number(this.form.hours)||0).toFixed(2)} hours allocated` : 'Choose dates and hours to preview the allocation.'; } },
+      watch: { 'form.startDate':'buildAllocation', 'form.endDate':'buildAllocation', 'form.hours':'buildAllocation', 'form.categoryId'() { this.form.projectId=''; this.form.instrumentId=''; } },
+      methods: {
+        buildAllocation() { const start = new Date(`${this.form.startDate}T00:00:00`), end = new Date(`${this.form.endDate}T00:00:00`), total = Number(this.form.hours); if (isNaN(start) || isNaN(end) || end < start || !Number.isFinite(total) || total < 0) { this.allocation=[]; return; } const days=[]; const cursor=new Date(start); while(cursor<=end){ const day=cursor.getDay(); if(day!==0 && day!==6) days.push(new Date(cursor)); cursor.setDate(cursor.getDate()+1); } if(!days.length){ this.allocation=[]; return; } const cents=Math.round(total*100), base=Math.floor(cents/days.length), remainder=cents%days.length; this.allocation=days.map((day,index)=>({workDate:day.toISOString().slice(0,10),hours:(base+(index<remainder?1:0))/100})); },
+        syncTotal() { this.form.hours=Number(this.allocationTotal.toFixed(2)); },
+        displayDay(value) { return new Date(`${value}T00:00:00`).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}); },
+        saveEntry() { if (!this.allocation.length || Math.abs(this.allocationTotal - Number(this.form.hours)) > .001) { this.showNotice('Please make sure daily hours match the total.'); return; } this.saving=true; google.script.run.withSuccessHandler(() => { this.saving=false; this.showNotice('Time entry saved.'); this.recentEntries.unshift({id:Date.now(),categoryName:this.selectedCategory.name,departmentName:this.options.departments.find(item=>item.id===this.form.departmentId).name,startDate:this.form.startDate,hours:this.form.hours}); this.recentEntries=this.recentEntries.slice(0,5); this.form.projectId=''; this.form.instrumentId=''; this.form.hours=null; this.allocation=[]; }).withFailureHandler(error=>{this.saving=false;this.showNotice(error.message||'Unable to save the entry.');}).submitTimeEntryWithAllocation({ ...this.form, dailyHours:this.allocation }); },
+        openHistory() { this.dashboardOpen=false; this.screen='history'; this.loadHistory(1); },
+        closeHistory() { this.editing=null; this.dashboardOpen=false; this.suggestionsOpen=false; this.feedbackOpen=false; this.adminOpen=false; this.screen='overview'; },
+        openSettings() { google.script.run.withSuccessHandler(data=>{this.settingsOptions=data.options||this.settingsOptions;this.settingsPreferences=data.preferences||this.settingsPreferences;this.settingsOpen=true;}).withFailureHandler(error=>this.showNotice(error.message||'Unable to load settings.')).getTimeTrackerDropdownSettings(); },
+        saveSettings() { this.settingsSaving=true; google.script.run.withSuccessHandler(()=>{this.settingsSaving=false;this.settingsOpen=false;this.showNotice('Dropdown preferences saved.');this.load();}).withFailureHandler(error=>{this.settingsSaving=false;this.showNotice(error.message||'Unable to save settings.');}).saveTimeTrackerDropdownSettings(this.settingsPreferences); },
+        dateKey(date) { const year=date.getFullYear(), month=String(date.getMonth()+1).padStart(2,'0'), day=String(date.getDate()).padStart(2,'0'); return `${year}-${month}-${day}`; },
+        applyDashboardPreset() { const today=new Date(); let start, end; if(this.dashboardFilters.preset==='lastWeek'){const monday=new Date(today.getFullYear(),today.getMonth(),today.getDate());monday.setDate(monday.getDate()-((monday.getDay()+6)%7)-7);start=monday;end=new Date(monday);end.setDate(monday.getDate()+6);} else if(this.dashboardFilters.preset==='lastYear'){start=new Date(today.getFullYear()-1,0,1);end=new Date(today.getFullYear()-1,11,31);} else if(this.dashboardFilters.preset==='lastMonth'){start=new Date(today.getFullYear(),today.getMonth()-1,1);end=new Date(today.getFullYear(),today.getMonth(),0);} else return; this.dashboardFilters.startDate=this.dateKey(start);this.dashboardFilters.endDate=this.dateKey(end); },
+        toggleDashboardAllUsers(selected) { this.dashboardFilters.allUsers=selected; if(selected) this.dashboardFilters.userEmails=[]; },
+        loadDashboardUsers() { if(!this.isAdmin || this.dashboardUsersLoading || this.dashboardUsers.length) return; this.dashboardUsersLoading=true; google.script.run.withSuccessHandler(users=>{this.dashboardUsers=users||[];this.dashboardUsersLoading=false;}).withFailureHandler(error=>{this.dashboardUsersLoading=false;this.showNotice(error.message||'Unable to load users.');}).getTimeTrackerDashboardUsers(); },
+        openDashboard() { this.editing=null; this.suggestionsOpen=false;this.feedbackOpen=false;this.adminOpen=false; this.dashboardOpen=true; if(!this.dashboardFilters.startDate || !this.dashboardFilters.endDate) this.applyDashboardPreset(); this.loadDashboardUsers(); this.loadDashboard(); },
+        closeDashboard() { this.dashboardOpen=false; },
+        formatDateTime(value) { return value ? new Date(value).toLocaleString() : ''; },
+        openSuggestions() { this.dashboardOpen=false;this.feedbackOpen=false;this.adminOpen=false;this.suggestionsOpen=true; google.script.run.withSuccessHandler(rows=>this.mySuggestions=rows||[]).withFailureHandler(error=>this.showNotice(error.message||'Unable to load suggestions.')).getTimeTrackerMySuggestions(); },
+        saveSuggestion() { const form=this.suggestionForm; const selected=this.suggestionItems.find(item=>item.id===form.targetId); const itemName=form.action==='remove' ? (selected&&selected.name) : form.itemName; if(!itemName) return this.showNotice('Complete the suggestion first.'); this.suggestionSaving=true; google.script.run.withSuccessHandler(()=>{this.suggestionSaving=false;this.showNotice('Suggestion submitted.');this.suggestionForm.itemName='';this.suggestionForm.targetId='';this.openSuggestions();}).withFailureHandler(error=>{this.suggestionSaving=false;this.showNotice(error.message||'Unable to submit suggestion.');}).submitTimeTrackerSuggestion({itemType:form.itemType,action:form.action,itemName,targetId:form.targetId}); },
+        openFeedback() { this.dashboardOpen=false;this.suggestionsOpen=false;this.adminOpen=false;this.feedbackOpen=true; google.script.run.withSuccessHandler(rows=>this.myFeedback=rows||[]).withFailureHandler(error=>this.showNotice(error.message||'Unable to load feedback.')).getTimeTrackerMyFeedback(); },
+        saveFeedback() { if(!this.feedbackMessage) return; this.feedbackSaving=true; google.script.run.withSuccessHandler(()=>{this.feedbackSaving=false;this.feedbackMessage='';this.showNotice('Feedback sent.');this.openFeedback();}).withFailureHandler(error=>{this.feedbackSaving=false;this.showNotice(error.message||'Unable to send feedback.');}).submitTimeTrackerFeedback(this.feedbackMessage); },
+        openAdministration() { this.dashboardOpen=false;this.suggestionsOpen=false;this.feedbackOpen=false;this.adminOpen=true; this.loadDashboardUsers(); this.loadAdminData(); },
+        loadAdminData() { this.adminLoading=true; google.script.run.withSuccessHandler(data=>{this.adminData=data||this.adminData;this.adminData.feedback.forEach(item=>item.draftReply=item.reply||'');this.adminLoading=false;}).withFailureHandler(error=>{this.adminLoading=false;this.showNotice(error.message||'Unable to load administration.');}).getTimeTrackerAdminData(); },
+        reviewSuggestion(item, decision) { google.script.run.withSuccessHandler(()=>{this.showNotice(`Suggestion ${decision}.`);this.loadAdminData();}).withFailureHandler(error=>this.showNotice(error.message||'Unable to review suggestion.')).reviewTimeTrackerSuggestion(item.id,decision,''); },
+        replyFeedback(item) { if(!item.draftReply || !item.draftReply.trim()) return this.showNotice('Enter a reply first.'); google.script.run.withSuccessHandler(()=>{this.showNotice('Reply sent.');this.loadAdminData();}).withFailureHandler(error=>this.showNotice(error.message||'Unable to send reply.')).replyTimeTrackerFeedback(item.id,item.draftReply,'replied'); },
+        assignAdmin() { if(!this.adminEmail) return; google.script.run.withSuccessHandler(()=>{this.showNotice('Administrator assigned.');this.adminEmail='';this.loadAdminData();}).withFailureHandler(error=>this.showNotice(error.message||'Unable to assign administrator.')).assignTimeTrackerAdmin(this.adminEmail); },
+        setAdminRole(role) { if(!this.adminEmail) return; const labels={admin:'Administrator assigned.',superadmin:'Superadmin assigned.',user:'Role revoked.'}; google.script.run.withSuccessHandler(()=>{this.showNotice(labels[role]);this.adminEmail='';this.loadAdminData();}).withFailureHandler(error=>this.showNotice(error.message||'Unable to change role.')).setTimeTrackerUserRole(this.adminEmail,role); },
+        loadDashboard() { if(!this.dashboardFilters.startDate || !this.dashboardFilters.endDate) return this.showNotice('Choose a valid dashboard date range.'); this.dashboardLoading=true; google.script.run.withSuccessHandler(result=>{this.dashboard=result||this.dashboard;this.dashboardLoading=false;}).withFailureHandler(error=>{this.dashboardLoading=false;this.showNotice(error.message||'Unable to load dashboard.');}).getTimeTrackerDashboard({...this.dashboardFilters}); },
+        formatHours(value) { return Number(value||0).toLocaleString(undefined,{maximumFractionDigits:2}); },
+        displayTableCategory(value) { return String(value || '').startsWith('Absences:') ? 'Absences' : value; },
+        categoryPercentage(hours, total) { return ((Number(hours)||0)/Math.max(Number(total)||0,1)*100).toFixed(1); },
+        categoryStyle(hours, total, index) { const colors=['#5b5bd6','#2c93a4','#d08a35','#c45b83','#4b8f62','#6a75a3']; return { width:`${this.categoryPercentage(hours,total)}%`, '--category-color':colors[index%colors.length] }; },
+        csvCell(value) { return `"${String(value == null ? '' : value).replace(/"/g,'""')}"`; },
+        exportDashboardCsv() { const header=['Department','Category','User email','Instrument','Project','Hours']; const lines=[header,...this.dashboard.rows.map(row=>[row.departmentName,row.categoryName,row.userEmail,row.instrumentName,row.projectName,row.hours])].map(row=>row.map(this.csvCell).join(',')); const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob); const link=document.createElement('a'); link.href=url; link.download=`time-tracker-report_${this.dashboard.period.startDate}_${this.dashboard.period.endDate}.csv`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); },
+        printDashboard() { window.print(); },
+        loadHistory(page) { this.historyLoading=true; google.script.run.withSuccessHandler(result=>{ this.historyEntries=result.entries||[]; this.historyPage=result.page||page; this.historyHasMore=Boolean(result.hasMore); this.historyLoading=false; }).withFailureHandler(error=>{ this.historyLoading=false; this.showNotice(error.message||'Unable to load entry history.'); }).getTimeTrackerHistory({ ...this.historyFilters, page, pageSize:25 }); },
+        deleteHistoryEntry(entry) { if (!confirm(`Delete the ${entry.hours}-hour entry from ${entry.startDate}?`)) return; google.script.run.withSuccessHandler(()=>{ this.showNotice('Entry deleted.'); this.loadHistory(this.historyPage); }).withFailureHandler(error=>this.showNotice(error.message||'Unable to delete entry.')).deleteTimeTrackerEntry(entry.id); },
+        hasOption(items, id) { return items.some(item => item.id === id); },
+        openEdit(entry) { google.script.run.withSuccessHandler(detail => { this.editing={...detail,departmentName:entry.departmentName,categoryName:entry.categoryName,projectName:entry.projectName,instrumentName:entry.instrumentName,dailyHours:(detail.dailyHours||[]).map(day=>({...day}))}; }).withFailureHandler(error=>this.showNotice(error.message||'Unable to open entry.')).getTimeTrackerEntryForEdit(entry.id); },
+        closeEditor() { if (!this.savingEdit) this.editing=null; },
+        redistributeEditedHours() { if (!this.editing) return; const start=new Date(`${this.editing.startDate}T00:00:00`), end=new Date(`${this.editing.endDate}T00:00:00`), total=Number(this.editing.hours); if (isNaN(start)||isNaN(end)||end<start||!Number.isFinite(total)||total<0) return this.showNotice('Enter valid dates and total hours first.'); const days=[], cursor=new Date(start); while(cursor<=end){if(cursor.getDay()!==0&&cursor.getDay()!==6)days.push(new Date(cursor));cursor.setDate(cursor.getDate()+1);} if(!days.length) return this.showNotice('The selected period has no weekdays.'); const cents=Math.round(total*100),base=Math.floor(cents/days.length),remainder=cents%days.length;this.editing.dailyHours=days.map((day,index)=>({workDate:day.toISOString().slice(0,10),hours:(base+(index<remainder?1:0))/100})); },
+        saveEditedEntry() { if (!this.editing || !this.editing.dailyHours.length || Math.abs(this.editingAllocationTotal-Number(this.editing.hours))>.001) return this.showNotice('Daily allocation must equal the total hours.'); this.savingEdit=true; const payload={id:this.editing.id,startDate:this.editing.startDate,endDate:this.editing.endDate,departmentId:this.editing.departmentId,categoryId:this.editing.categoryId,projectId:this.editing.projectId||'',instrumentId:this.editing.instrumentId||'',hours:Number(this.editing.hours),dailyHours:this.editing.dailyHours.map(day=>({workDate:day.workDate,hours:Number(day.hours)||0}))}; google.script.run.withSuccessHandler(()=>{this.savingEdit=false;this.editing=null;this.showNotice('Entry updated.');this.loadHistory(this.historyPage);this.load();}).withFailureHandler(error=>{this.savingEdit=false;this.showNotice(error.message||'Unable to update entry.');}).updateTimeTrackerEntry(payload); },
+        showNotice(message) { this.notice=message; setTimeout(()=>this.notice='',3500); },
+        load() { google.script.run.withSuccessHandler(data=>{ this.email=data.email;this.role=data.role||'user';this.isAdmin=['admin','superadmin'].includes(this.role);this.summary=data.summary||this.summary;this.options=data.options||this.options;this.recentEntries=data.recentEntries||[];this.loading=false; }).withFailureHandler(error=>{this.loading=false;this.showNotice(error.message||'Unable to load the application.');}).getTimeTrackerBootstrap(); }
+      },
+      mounted() { window.timeTrackerApp=this; this.load(); }
+    }).mount('#app');
+  </script>
+  <script>
+    // The history markup is retained for compatibility with the deployed page.
+    // This bridge only renders its explicit Edit control; Vue owns all edit state.
+    setInterval(() => {
+      const app = window.timeTrackerApp;
+      if (!app || app.screen !== 'history') return;
+      document.querySelectorAll('.entry').forEach((row, index) => {
+        const deleteButton = row.querySelector('.danger');
+        if (!deleteButton || row.querySelector('.quick-edit')) return;
+        const actions = document.createElement('div');
+        actions.className = 'entry-actions';
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.className = 'secondary quick-edit';
+        editButton.textContent = 'Edit';
+        editButton.addEventListener('click', () => {
+          const entry = app.historyEntries[index];
+          if (entry) app.openEdit(entry);
+        });
+        deleteButton.parentNode.insertBefore(actions, deleteButton);
+        actions.append(editButton, deleteButton);
+      });
+    }, 350);
+  </script>
+</body>
+</html>

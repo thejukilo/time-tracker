@@ -1,0 +1,6 @@
+# Local extension deployment configuration (contains an environment-specific URL)
+time-tracker-extension/config.js
+
+# Apps Script / clasp local state
+.clasp.json
+*.clasprc.json

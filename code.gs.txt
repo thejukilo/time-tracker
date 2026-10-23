@@ -1,0 +1,1557 @@
+function getCurrentUserEmail_() {
+  const email = Session.getActiveUser().getEmail().trim().toLowerCase();
+
+  if (!email) {
+    throw new Error(
+      'Could not determine the signed-in Workspace email. Check the web-app deployment settings.'
+    );
+  }
+
+  return email;
+}
+
+function supabaseRequest_(path, method, payload, additionalHeaders) {
+  const properties = PropertiesService.getScriptProperties();
+  const baseUrl = properties.getProperty('SUPABASE_URL');
+  const serviceRoleKey = properties.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (!baseUrl || !serviceRoleKey) {
+    throw new Error('Supabase Script Properties are missing.');
+  }
+
+  const response = UrlFetchApp.fetch(
+    `${baseUrl.replace(/\/$/, '')}/rest/v1/${path}`,
+    {
+      method: method || 'get',
+      contentType: 'application/json',
+      headers: Object.assign({
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        Prefer: 'return=representation'
+      }, additionalHeaders || {}),
+      payload: payload ? JSON.stringify(payload) : undefined,
+      muteHttpExceptions: true
+    }
+  );
+
+  const status = response.getResponseCode();
+  const body = response.getContentText();
+
+  if (status < 200 || status >= 300) {
+    throw new Error(`Supabase request failed (${status}): ${body}`);
+  }
+
+  return body ? JSON.parse(body) : null;
+}
+
+
+function parseIsoDate_(value, fieldName) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    throw new Error(`${fieldName} must use YYYY-MM-DD format.`);
+  }
+
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3])
+  );
+
+  if (isNaN(date.getTime())) {
+    throw new Error(`${fieldName} is invalid.`);
+  }
+
+  return date;
+}
+
+function formatIsoDate_(date) {
+  return Utilities.formatDate(
+    date,
+    Session.getScriptTimeZone(),
+    'yyyy-MM-dd'
+  );
+}
+
+function buildWeekdayAllocation_(startDateValue, endDateValue, totalHoursValue) {
+  const startDate = parseIsoDate_(startDateValue, 'Start date');
+  const endDate = parseIsoDate_(endDateValue, 'End date');
+  const totalHours = Number(totalHoursValue);
+
+  if (endDate < startDate) {
+    throw new Error('End date cannot be before start date.');
+  }
+
+  if (!isFinite(totalHours) || totalHours < 0 || totalHours > 744) {
+    throw new Error('Hours must be between 0 and 744.');
+  }
+
+  const totalCents = Math.round(totalHours * 100);
+
+  if (Math.abs(totalHours * 100 - totalCents) > 0.00001) {
+    throw new Error('Hours can have a maximum of two decimal places.');
+  }
+
+  const weekdays = [];
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
+    const dayOfWeek = cursor.getDay();
+
+    // Monday–Friday only.
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      weekdays.push(new Date(cursor));
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  if (!weekdays.length) {
+    throw new Error('The selected period has no weekdays.');
+  }
+
+  const baseCents = Math.floor(totalCents / weekdays.length);
+  const remainderCents = totalCents % weekdays.length;
+
+  return weekdays.map((date, index) => ({
+    workDate: formatIsoDate_(date),
+    hours: (baseCents + (index < remainderCents ? 1 : 0)) / 100
+  }));
+}
+
+function testWeekdayAllocation() {
+  const allocation = buildWeekdayAllocation_(
+    '2026-10-19',
+    '2026-10-21',
+    16
+  );
+
+  Logger.log(JSON.stringify(allocation));
+  return allocation;
+}
+
+function createTimeEntryInSupabase_(entry) {
+  const email = getCurrentUserEmail_();
+  const dailyAllocation = buildWeekdayAllocation_(
+    entry.startDate,
+    entry.endDate,
+    entry.totalHours
+  );
+
+  return supabaseRequest_('rpc/create_time_entry', 'post', {
+    p_user_email: email,
+    p_department_id: entry.departmentId,
+    p_category_id: entry.categoryId,
+    p_project_id: entry.projectId || null,
+    p_instrument_id: entry.instrumentId || null,
+    p_start_date: entry.startDate,
+    p_end_date: entry.endDate,
+    p_total_hours: Number(entry.totalHours),
+    p_daily_hours: dailyAllocation.map(day => ({
+      work_date: day.workDate,
+      hours: day.hours
+    }))
+  });
+}
+
+
+function getReferenceItemByName_(table, name) {
+  const items = supabaseRequest_(
+    `${table}?name=eq.${encodeURIComponent(name)}&is_active=eq.true&select=id,name`,
+    'get'
+  );
+
+  if (!items.length) {
+    throw new Error(`Active ${table} item not found: ${name}`);
+  }
+
+  return items[0];
+}
+
+function getActiveFormOptionsFromSupabase() {
+  const departments = supabaseRequest_(
+    'departments?is_active=eq.true&select=id,name&order=name.asc',
+    'get'
+  );
+
+  const categories = supabaseRequest_(
+    'categories?is_active=eq.true&select=id,name,requires_project,requires_instrument&order=name.asc',
+    'get'
+  );
+
+  const projects = supabaseRequest_(
+    'projects?is_active=eq.true&select=id,name&order=name.asc',
+    'get'
+  );
+
+  const instruments = supabaseRequest_(
+    'instruments?is_active=eq.true&select=id,name&order=name.asc',
+    'get'
+  );
+
+  return {
+    departments,
+    categories,
+    projects,
+    instruments
+  };
+}
+
+function submitTimeEntryToSupabase(entry) {
+  if (!entry) {
+    throw new Error('Time entry data is required.');
+  }
+
+  return createTimeEntryInSupabase_({
+    startDate: entry.startDate,
+    endDate: entry.endDate,
+    totalHours: entry.hours,
+    departmentId: entry.departmentId,
+    categoryId: entry.categoryId,
+    projectId: entry.projectId || null,
+    instrumentId: entry.instrumentId || null
+  });
+}
+
+function testGetFormOptionsFromSupabase() {
+  const options = getActiveFormOptionsFromSupabase();
+
+  Logger.log(JSON.stringify({
+    departments: options.departments.length,
+    categories: options.categories.length,
+    projects: options.projects.length,
+    instruments: options.instruments.length
+  }));
+
+  return options;
+}
+
+
+function getSourceSheetRows_(sheetName) {
+  const sheet = SpreadsheetApp
+    .openById('1LBZ8lMYemyqewTMa_BZr4pssFi3Y_EjcRuu-29VAS74')
+    .getSheetByName(sheetName);
+
+  if (!sheet) {
+    throw new Error(`Spreadsheet sheet not found: ${sheetName}`);
+  }
+
+  const data = sheet.getDataRange().getValues();
+
+  if (data.length < 2) {
+    return [];
+  }
+
+  const headers = data[0].map(header =>
+    String(header).trim().toLowerCase()
+  );
+
+  return data.slice(1).map(row => {
+    const item = {};
+
+    headers.forEach((header, index) => {
+      item[header] = row[index];
+    });
+
+    return item;
+  });
+}
+
+function sourceBoolean_(value) {
+  return value === true || String(value).trim().toLowerCase() === 'true';
+}
+
+function sourceIsActive_(value) {
+  // Departments in the current spreadsheet do not have a status column.
+  return value === undefined ||
+    value === null ||
+    String(value).trim() === '' ||
+    String(value).trim().toLowerCase() === 'active';
+}
+
+function uniqueByName_(items) {
+  const byName = new Map();
+
+  items.forEach(item => {
+    const name = String(item.name || '').trim();
+
+    if (name) {
+      byName.set(name.toLowerCase(), Object.assign({}, item, { name }));
+    }
+  });
+
+  return [...byName.values()];
+}
+
+function upsertReferenceItems_(table, items) {
+  if (!items.length) {
+    return [];
+  }
+
+  return supabaseRequest_(
+    `${table}?on_conflict=name`,
+    'post',
+    items,
+    {
+      Prefer: 'resolution=merge-duplicates,return=representation'
+    }
+  );
+}
+
+function migrateReferenceDataToSupabase() {
+  const departmentRows = getSourceSheetRows_('departments');
+  const categoryRows = getSourceSheetRows_('categories');
+  const projectRows = getSourceSheetRows_('projects');
+  const instrumentRows = getSourceSheetRows_('instruments');
+
+  const departments = uniqueByName_(
+    departmentRows.map(row => ({
+      name: row.name || row.department || Object.values(row)[0],
+      is_active: sourceIsActive_(row.status)
+    }))
+  );
+
+  const categories = uniqueByName_(
+    categoryRows.map(row => ({
+      name: row.name,
+      requires_project: sourceBoolean_(row.projectsvisible),
+      requires_instrument: sourceBoolean_(row.instrumentsvisible),
+      is_active: sourceIsActive_(row.status)
+    }))
+  );
+
+  const projects = uniqueByName_(
+    projectRows.map(row => ({
+      name: row.name || Object.values(row)[0],
+      is_active: sourceIsActive_(row.status)
+    }))
+  );
+
+  const instruments = uniqueByName_(
+    instrumentRows.map(row => ({
+      name: row.name || Object.values(row)[0],
+      is_active: sourceIsActive_(row.status)
+    }))
+  );
+
+  upsertReferenceItems_('departments', departments);
+  upsertReferenceItems_('categories', categories);
+  upsertReferenceItems_('projects', projects);
+  upsertReferenceItems_('instruments', instruments);
+
+  const result = {
+    departments: departments.length,
+    categories: categories.length,
+    projects: projects.length,
+    instruments: instruments.length
+  };
+
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+function getSourceTimeEntryRows_() {
+  const sheet = SpreadsheetApp
+    .openById('1LBZ8lMYemyqewTMa_BZr4pssFi3Y_EjcRuu-29VAS74')
+    .getSheetByName('timeEntries');
+
+  if (!sheet) {
+    throw new Error('Spreadsheet sheet not found: timeEntries');
+  }
+
+  const data = sheet.getDataRange().getValues();
+
+  if (data.length < 2) {
+    return [];
+  }
+
+  const headers = data[0].map(header =>
+    String(header).trim().toLowerCase()
+  );
+
+  return data.slice(1).map((row, index) => {
+    const item = { spreadsheetRow: index + 2 };
+
+    headers.forEach((header, columnIndex) => {
+      item[header] = row[columnIndex];
+    });
+
+    return item;
+  });
+}
+
+function sourceDateToIso_(value, fieldName) {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return formatIsoDate_(value);
+  }
+
+  const text = String(value || '').trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  throw new Error(`${fieldName} is not a valid date.`);
+}
+
+function getReferenceMap_(table, fields) {
+  const rows = supabaseRequest_(
+    `${table}?select=${fields.join(',')}`,
+    'get'
+  );
+
+  return rows.reduce((map, row) => {
+    map[String(row.name).trim().toLowerCase()] = row;
+    return map;
+  }, {});
+}
+
+function previewTimeEntryMigration() {
+  const departments = getReferenceMap_('departments', ['id', 'name']);
+  const categories = getReferenceMap_(
+    'categories',
+    ['id', 'name', 'requires_project', 'requires_instrument']
+  );
+  const projects = getReferenceMap_('projects', ['id', 'name']);
+  const instruments = getReferenceMap_('instruments', ['id', 'name']);
+
+  const sourceEntries = getSourceTimeEntryRows_();
+  const issues = [];
+  let validEntries = 0;
+
+  sourceEntries.forEach(entry => {
+    try {
+      const departmentName = String(entry.department || '').trim();
+      const categoryName = String(entry.category || '').trim();
+      const projectName = String(entry.project || '').trim();
+      const instrumentName = String(entry.instrument || '').trim();
+      const email = String(entry.email || '').trim().toLowerCase();
+
+      const department = departments[departmentName.toLowerCase()];
+      const category = categories[categoryName.toLowerCase()];
+      const project = projectName
+        ? projects[projectName.toLowerCase()]
+        : null;
+      const instrument = instrumentName
+        ? instruments[instrumentName.toLowerCase()]
+        : null;
+
+      if (!email) throw new Error('Missing user email.');
+      if (!department) throw new Error(`Department not found: ${departmentName}`);
+      if (!category) throw new Error(`Category not found: ${categoryName}`);
+      if (projectName && !project) throw new Error(`Project not found: ${projectName}`);
+      if (instrumentName && !instrument) throw new Error(`Instrument not found: ${instrumentName}`);
+
+      if (category.requires_project && !project) {
+        throw new Error('This category requires a project.');
+      }
+
+      if (category.requires_instrument && !instrument) {
+        throw new Error('This category requires an instrument.');
+      }
+
+      const startDate = sourceDateToIso_(entry.startdate, 'Start date');
+      const endDate = sourceDateToIso_(entry.enddate, 'End date');
+
+      buildWeekdayAllocation_(startDate, endDate, entry.hours);
+      validEntries += 1;
+    } catch (error) {
+      if (issues.length < 50) {
+        issues.push({
+          spreadsheetRow: entry.spreadsheetRow,
+          reason: error.message
+        });
+      }
+    }
+  });
+
+  const result = {
+    totalSourceEntries: sourceEntries.length,
+    validEntries,
+    invalidEntries: sourceEntries.length - validEntries,
+    sampleIssues: issues
+  };
+
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+
+function previewHistoricalTimeEntryMigration() {
+  const departments = getReferenceMap_('departments', ['id', 'name']);
+  const categories = getReferenceMap_(
+    'categories',
+    ['id', 'name']
+  );
+  const projects = getReferenceMap_('projects', ['id', 'name']);
+  const instruments = getReferenceMap_('instruments', ['id', 'name']);
+
+  const sourceEntries = getSourceTimeEntryRows_();
+  const issues = [];
+  const issueCounts = {};
+  let validEntries = 0;
+
+  sourceEntries.forEach(entry => {
+    try {
+      const departmentName = String(entry.department || '').trim();
+      const categoryName = String(entry.category || '').trim();
+      const projectName = String(entry.project || '').trim();
+      const instrumentName = String(entry.instrument || '').trim();
+      const email = String(entry.email || '').trim().toLowerCase();
+
+      if (!email) throw new Error('Missing user email.');
+      if (!departments[departmentName.toLowerCase()]) {
+        throw new Error(`Department not found: ${departmentName}`);
+      }
+      if (!categories[categoryName.toLowerCase()]) {
+        throw new Error(`Category not found: ${categoryName}`);
+      }
+      if (projectName && !projects[projectName.toLowerCase()]) {
+        throw new Error(`Project not found: ${projectName}`);
+      }
+      if (instrumentName && !instruments[instrumentName.toLowerCase()]) {
+        throw new Error(`Instrument not found: ${instrumentName}`);
+      }
+
+      const startDate = sourceDateToIso_(entry.startdate, 'Start date');
+      const endDate = sourceDateToIso_(entry.enddate, 'End date');
+
+      buildWeekdayAllocation_(startDate, endDate, entry.hours);
+      validEntries += 1;
+    } catch (error) {
+      const reason = error.message;
+      issueCounts[reason] = (issueCounts[reason] || 0) + 1;
+
+      if (issues.length < 50) {
+        issues.push({
+          spreadsheetRow: entry.spreadsheetRow,
+          reason
+        });
+      }
+    }
+  });
+
+  const result = {
+    totalSourceEntries: sourceEntries.length,
+    validEntries,
+    invalidEntries: sourceEntries.length - validEntries,
+    issueCounts,
+    sampleIssues: issues
+  };
+
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+
+const LEGACY_MIGRATION_NEXT_ROW_PROPERTY =
+  'LEGACY_MIGRATION_NEXT_ROW';
+
+function getSourceTimeEntryBatch_(startRow, batchSize) {
+  const sheet = SpreadsheetApp
+    .openById('1LBZ8lMYemyqewTMa_BZr4pssFi3Y_EjcRuu-29VAS74')
+    .getSheetByName('timeEntries');
+
+  if (!sheet) {
+    throw new Error('Spreadsheet sheet not found: timeEntries');
+  }
+
+  const lastRow = sheet.getLastRow();
+
+  if (startRow > lastRow) {
+    return [];
+  }
+
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getValues()[0]
+    .map(header => String(header).trim().toLowerCase());
+
+  const rowCount = Math.min(batchSize, lastRow - startRow + 1);
+  const values = sheet
+    .getRange(startRow, 1, rowCount, headers.length)
+    .getValues();
+
+  return values.map((row, offset) => {
+    const entry = { spreadsheetRow: startRow + offset };
+
+    headers.forEach((header, index) => {
+      entry[header] = row[index];
+    });
+
+    return entry;
+  });
+}
+
+function getLegacyReferenceMaps_() {
+  return {
+    departments: getReferenceMap_('departments', ['id', 'name']),
+    categories: getReferenceMap_('categories', ['id', 'name']),
+    projects: getReferenceMap_('projects', ['id', 'name']),
+    instruments: getReferenceMap_('instruments', ['id', 'name'])
+  };
+}
+
+function buildLegacyMigrationPayload_(entry, references) {
+  const email = String(entry.email || '').trim().toLowerCase();
+  const departmentName = String(entry.department || '').trim();
+  const categoryName = String(entry.category || '').trim();
+  const projectName = String(entry.project || '').trim();
+  const instrumentName = String(entry.instrument || '').trim();
+
+  const department =
+    references.departments[departmentName.toLowerCase()];
+  const category =
+    references.categories[categoryName.toLowerCase()];
+  const project = projectName
+    ? references.projects[projectName.toLowerCase()]
+    : null;
+  const instrument = instrumentName
+    ? references.instruments[instrumentName.toLowerCase()]
+    : null;
+
+  if (!email) throw new Error('Missing user email.');
+  if (!department) throw new Error(`Department not found: ${departmentName}`);
+  if (!category) throw new Error(`Category not found: ${categoryName}`);
+  if (projectName && !project) throw new Error(`Project not found: ${projectName}`);
+  if (instrumentName && !instrument) throw new Error(`Instrument not found: ${instrumentName}`);
+
+  const startDate = sourceDateToIso_(entry.startdate, 'Start date');
+  const endDate = sourceDateToIso_(entry.enddate, 'End date');
+  const dailyHours = buildWeekdayAllocation_(
+    startDate,
+    endDate,
+    entry.hours
+  );
+
+  return {
+    legacy_source_key: `legacy-timeEntries-row-${entry.spreadsheetRow}`,
+    allocation_method: 'legacy_equal_weekdays',
+    user_email: email,
+    department_id: department.id,
+    category_id: category.id,
+    project_id: project ? project.id : null,
+    instrument_id: instrument ? instrument.id : null,
+    start_date: startDate,
+    end_date: endDate,
+    total_hours: Number(entry.hours),
+    daily_hours: dailyHours.map(day => ({
+      work_date: day.workDate,
+      hours: day.hours
+    }))
+  };
+}
+
+function migrateNextLegacyTimeEntryBatch() {
+  const lock = LockService.getScriptLock();
+
+  if (!lock.tryLock(1000)) {
+    throw new Error('Another migration batch is already running.');
+  }
+
+  try {
+    const properties = PropertiesService.getScriptProperties();
+    const startRow = Number(
+      properties.getProperty(LEGACY_MIGRATION_NEXT_ROW_PROPERTY) || 2
+    );
+    const batchSize = 200;
+    const sourceEntries = getSourceTimeEntryBatch_(startRow, batchSize);
+
+    if (!sourceEntries.length) {
+      return {
+        complete: true,
+        message: 'All spreadsheet rows have been processed.'
+      };
+    }
+
+    const references = getLegacyReferenceMaps_();
+    const payload = [];
+    const skippedByReason = {};
+
+    sourceEntries.forEach(entry => {
+      try {
+        payload.push(buildLegacyMigrationPayload_(entry, references));
+      } catch (error) {
+        const reason = error.message;
+        skippedByReason[reason] = (skippedByReason[reason] || 0) + 1;
+      }
+    });
+
+    const databaseResult = payload.length
+      ? supabaseRequest_(
+          'rpc/migrate_legacy_time_entry_batch',
+          'post',
+          { p_entries: payload }
+        )
+      : [{ inserted_count: 0, existing_count: 0 }];
+
+    const counts = databaseResult[0] || {
+      inserted_count: 0,
+      existing_count: 0
+    };
+
+    const nextRow = startRow + sourceEntries.length;
+    properties.setProperty(
+      LEGACY_MIGRATION_NEXT_ROW_PROPERTY,
+      String(nextRow)
+    );
+
+    const result = {
+      complete: sourceEntries.length < batchSize,
+      processedSpreadsheetRows: sourceEntries.length,
+      inserted: counts.inserted_count,
+      alreadyImported: counts.existing_count,
+      skipped: sourceEntries.length - payload.length,
+      skippedByReason,
+      nextSpreadsheetRow: nextRow
+    };
+
+    Logger.log(JSON.stringify(result));
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function migrateLegacyEntriesForFourMinutes() {
+  const startedAt = Date.now();
+  const maximumDurationMs = 240000; // Four minutes.
+  let totalInserted = 0;
+  let totalExisting = 0;
+  let totalSkipped = 0;
+  let lastResult = null;
+
+  while (Date.now() - startedAt < maximumDurationMs) {
+    lastResult = migrateNextLegacyTimeEntryBatch();
+
+    totalInserted += lastResult.inserted;
+    totalExisting += lastResult.alreadyImported;
+    totalSkipped += lastResult.skipped;
+
+    if (lastResult.complete) {
+      break;
+    }
+  }
+
+  const result = {
+    complete: Boolean(lastResult && lastResult.complete),
+    insertedThisRun: totalInserted,
+    alreadyImportedThisRun: totalExisting,
+    skippedThisRun: totalSkipped,
+    nextSpreadsheetRow: lastResult
+      ? lastResult.nextSpreadsheetRow
+      : null
+  };
+
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+
+// API
+
+// Google Apps Script backend for the spreadsheet-backed time tracker.
+// Expected timeEntries columns: startDate, endDate, department, category,
+// project, instrument, hours, email.
+const SPREADSHEET_ID = '1LBZ8lMYemyqewTMa_BZr4pssFi3Y_EjcRuu-29VAS74';
+const USER_SETTINGS_SHEET = 'userSettings';
+const PROJECTS_SHEET = 'projects';
+const INSTRUMENTS_SHEET = 'instruments';
+const CATEGORIES_SHEET = 'categories';
+const DEPARTMENTS_SHEET = 'departments';
+const TIME_ENTRIES_SHEET = 'timeEntries';
+const FEEDBACK_SHEET = 'feedback';
+const ADMINS_SHEET = 'admins';
+const LIST_SHEETS = [CATEGORIES_SHEET, INSTRUMENTS_SHEET, PROJECTS_SHEET];
+const MAX_HISTORY_PAGE_SIZE = 100;
+function doGet(e) {
+  const api = e && e.parameter && e.parameter.api;
+  if (api === 'timerBootstrap') {
+    try { return timeTrackerApiResponse_({ ok: true, data: getTimeTrackerBootstrap() }); }
+    catch (error) { return timeTrackerApiResponse_({ ok: false, error: error.message || String(error) }); }
+  }
+  const page = (e && e.parameter && e.parameter.page) || 'index';
+  return HtmlService.createHtmlOutputFromFile(page)
+    .setTitle('Time Tracker')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+function doPost(e) {
+  try {
+    const api = e && e.parameter && e.parameter.api;
+    if (api !== 'timerSave') throw new Error('Unsupported API action.');
+    const entry = JSON.parse((e.parameter && e.parameter.entry) || '{}');
+    const result = submitTimeEntryWithAllocation(entry);
+    return timeTrackerApiResponse_({ ok: true, data: result });
+  } catch (error) {
+    return timeTrackerApiResponse_({ ok: false, error: error.message || String(error) });
+  }
+}
+function timeTrackerApiResponse_(payload) {
+  return ContentService.createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+function getSpreadsheet_() { return SpreadsheetApp.openById(SPREADSHEET_ID); }
+function getSheet_(name) {
+  const sheet = getSpreadsheet_().getSheetByName(name);
+  if (!sheet) throw new Error(`Missing required sheet: ${name}`);
+  return sheet;
+}
+function headerIndex_(headers) {
+  return headers.reduce((index, header, position) => {
+    index[String(header).trim().toLowerCase()] = position;
+    return index;
+  }, {});
+}
+function requiredHeader_(index, name) {
+  if (index[name] === undefined) throw new Error(`Missing required column: ${name}`);
+  return index[name];
+}
+function currentEmail_() {
+  const email = Session.getActiveUser().getEmail();
+  if (!email) throw new Error('Your email address is not available. Use the deployed application while signed in to your organization account.');
+  return email.trim().toLowerCase();
+}
+function formatDate_(value) {
+  if (!value) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const parsed = new Date(text);
+  return isNaN(parsed) ? '' : Utilities.formatDate(parsed, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+function requireDate_(value, fieldName) {
+  const date = formatDate_(value);
+  if (!date) throw new Error(`${fieldName} must be a valid date.`);
+  return date;
+}
+function dateValue_(dateKey) {
+  const parts = dateKey.split('-').map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+function cleanText_(value, fieldName, required) {
+  const text = String(value || '').trim();
+  if (required && !text) throw new Error(`${fieldName} is required.`);
+  if (text.length > 250) throw new Error(`${fieldName} is too long.`);
+  return text;
+}
+function requireAdmin_() {
+  const email = currentEmail_();
+  const sheet = getSheet_(ADMINS_SHEET);
+  const admins = sheet.getRange(1, 1, sheet.getLastRow(), 1).getDisplayValues()
+    .flat().map(value => value.trim().toLowerCase()).filter(Boolean);
+  if (!admins.includes(email)) throw new Error('Administrator access is required.');
+  return email;
+}
+function isCurrentUserAdmin() {
+  try { requireAdmin_(); return true; } catch (error) { return false; }
+}
+// Kept for compatibility with existing deployments. Do not use this for UI authorization.
+function getAdminEmails() {
+  requireAdmin_();
+  const sheet = getSheet_(ADMINS_SHEET);
+  return sheet.getRange(1, 1, sheet.getLastRow(), 1).getDisplayValues()
+    .flat().map(value => value.trim()).filter(Boolean);
+}
+function getUserEmail() { return currentEmail_(); }
+function getUserSettingsFromSheet() {
+  const email = currentEmail_();
+  const sheet = getSheet_(USER_SETTINGS_SHEET);
+  const values = sheet.getDataRange().getDisplayValues();
+  const columns = headerIndex_(values[0] || []);
+  const emailColumn = requiredHeader_(columns, 'email');
+  const projectColumn = requiredHeader_(columns, 'visibleprojects');
+  const instrumentColumn = requiredHeader_(columns, 'visibleinstruments');
+  const departmentColumn = requiredHeader_(columns, 'visibledepartments');
+  const row = values.slice(1).find(item => String(item[emailColumn]).trim().toLowerCase() === email);
+  const toList = value => String(value || '').split(',').map(item => item.trim()).filter(Boolean);
+  return row ? {
+    visibleProjects: toList(row[projectColumn]),
+    visibleInstruments: toList(row[instrumentColumn]),
+    visibleDepartments: toList(row[departmentColumn])
+  } : { visibleProjects: [], visibleInstruments: [], visibleDepartments: [] };
+}
+function saveUserSettingsToSheet(settings) {
+  const email = currentEmail_();
+  const sheet = getSheet_(USER_SETTINGS_SHEET);
+  const values = sheet.getDataRange().getDisplayValues();
+  const columns = headerIndex_(values[0] || []);
+  const emailColumn = requiredHeader_(columns, 'email');
+  const projectColumn = requiredHeader_(columns, 'visibleprojects');
+  const instrumentColumn = requiredHeader_(columns, 'visibleinstruments');
+  const departmentColumn = requiredHeader_(columns, 'visibledepartments');
+  const normaliseList = value => [...new Set((Array.isArray(value) ? value : []).map(item => String(item).trim()).filter(Boolean))].join(',');
+  const settingsValues = [normaliseList(settings.visibleProjects), normaliseList(settings.visibleInstruments), normaliseList(settings.visibleDepartments)];
+  const rowIndex = values.slice(1).findIndex(row => String(row[emailColumn]).trim().toLowerCase() === email);
+  if (rowIndex === -1) {
+    const row = new Array(values[0].length).fill('');
+    row[emailColumn] = email;
+    row[projectColumn] = settingsValues[0];
+    row[instrumentColumn] = settingsValues[1];
+    row[departmentColumn] = settingsValues[2];
+    sheet.appendRow(row);
+    return;
+  }
+  const targetRow = rowIndex + 2;
+  sheet.getRange(targetRow, projectColumn + 1).setValue(settingsValues[0]);
+  sheet.getRange(targetRow, instrumentColumn + 1).setValue(settingsValues[1]);
+  sheet.getRange(targetRow, departmentColumn + 1).setValue(settingsValues[2]);
+}
+function getActiveList_(sheetName) {
+  const values = getSheet_(sheetName).getDataRange().getValues();
+  const columns = headerIndex_(values[0] || []);
+  const nameColumn = columns.name === undefined ? 0 : columns.name;
+  const statusColumn = columns.status;
+  return values.slice(1)
+    .filter(row => statusColumn === undefined || String(row[statusColumn]).toLowerCase() === 'active')
+    .map(row => String(row[nameColumn] || '').trim()).filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+}
+function getProjectsFromSheet() { return getActiveList_(PROJECTS_SHEET); }
+function getInstrumentsFromSheet() { return getActiveList_(INSTRUMENTS_SHEET); }
+function getDepartmentsFromSheet() { return getActiveList_(DEPARTMENTS_SHEET); }
+function getCategoriesFromSheet() {
+  const values = getSheet_(CATEGORIES_SHEET).getDataRange().getValues();
+  const columns = headerIndex_(values[0] || []);
+  const nameColumn = requiredHeader_(columns, 'name');
+  const statusColumn = requiredHeader_(columns, 'status');
+  const projectsColumn = requiredHeader_(columns, 'projectsvisible');
+  const instrumentsColumn = requiredHeader_(columns, 'instrumentsvisible');
+  const asBoolean = value => value === true || String(value).toLowerCase() === 'true';
+  return values.slice(1)
+    .filter(row => String(row[statusColumn]).toLowerCase() === 'active')
+    .map(row => ({ name: String(row[nameColumn] || '').trim(), projectsVisible: asBoolean(row[projectsColumn]), instrumentsVisible: asBoolean(row[instrumentsColumn]) }))
+    .filter(category => category.name).sort((a, b) => a.name.localeCompare(b.name));
+}
+function timeEntryContext_() {
+  const sheet = getSheet_(TIME_ENTRIES_SHEET);
+  const values = sheet.getDataRange().getValues();
+  const columns = headerIndex_(values[0] || []);
+  ['startdate', 'enddate', 'department', 'category', 'project', 'instrument', 'hours', 'email'].forEach(name => requiredHeader_(columns, name));
+  return { sheet, values, columns };
+}
+function entryFromRow_(row, rowIndex, columns) {
+  return {
+    rowIndex,
+    startDate: formatDate_(row[columns.startdate]),
+    endDate: formatDate_(row[columns.enddate]),
+    department: String(row[columns.department] || ''),
+    category: String(row[columns.category] || ''),
+    project: String(row[columns.project] || ''),
+    instrument: String(row[columns.instrument] || ''),
+    hours: Number(row[columns.hours]) || 0,
+    email: String(row[columns.email] || '').trim().toLowerCase()
+  };
+}
+function validateEntry_(entry) {
+  const startDate = requireDate_(entry.startDate, 'Start date');
+  const endDate = requireDate_(entry.endDate, 'End date');
+  if (endDate < startDate) throw new Error('End date cannot be before start date.');
+  const hours = Number(entry.hours);
+  if (!isFinite(hours) || hours < 0 || hours > 24 * 31) throw new Error('Hours must be between 0 and 744.');
+  return {
+    startDate: dateValue_(startDate), endDate: dateValue_(endDate),
+    department: cleanText_(entry.department, 'Department', true),
+    category: cleanText_(entry.category, 'Category', true),
+    project: cleanText_(entry.project, 'Project', false),
+    instrument: cleanText_(entry.instrument, 'Instrument', false), hours
+  };
+}
+function submitTimeEntryToSheet(entry) {
+  const email = currentEmail_();
+  const valid = validateEntry_(entry);
+  const context = timeEntryContext_();
+  const row = new Array(context.values[0].length).fill('');
+  Object.assign(row, {
+    [context.columns.startdate]: valid.startDate, [context.columns.enddate]: valid.endDate,
+    [context.columns.department]: valid.department, [context.columns.category]: valid.category,
+    [context.columns.project]: valid.project, [context.columns.instrument]: valid.instrument,
+    [context.columns.hours]: valid.hours, [context.columns.email]: email
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try { context.sheet.appendRow(row); } finally { lock.releaseLock(); }
+}
+function getTimeEntriesForCurrentUser(filters) {
+  const email = currentEmail_();
+  const options = filters || {};
+  const startDate = options.startDate ? requireDate_(options.startDate, 'From date') : '';
+  const endDate = options.endDate ? requireDate_(options.endDate, 'To date') : '';
+  if (startDate && endDate && endDate < startDate) throw new Error('The end date cannot be before the start date.');
+  const pageSize = Math.min(Math.max(Number(options.pageSize) || 25, 1), MAX_HISTORY_PAGE_SIZE);
+  const requestedPage = Math.max(Number(options.page) || 1, 1);
+  const context = timeEntryContext_();
+  const entries = context.values.slice(1).map((row, index) => entryFromRow_(row, index + 2, context.columns))
+    .filter(entry => entry.email === email && (!startDate || entry.startDate >= startDate) && (!endDate || entry.endDate <= endDate))
+    .sort((a, b) => b.startDate.localeCompare(a.startDate) || b.rowIndex - a.rowIndex);
+  const total = entries.length;
+  const pageCount = Math.max(Math.ceil(total / pageSize), 1);
+  const page = Math.min(requestedPage, pageCount);
+  return { entries: entries.slice((page - 1) * pageSize, page * pageSize), total, page, pageCount };
+}
+function getLatestEntriesFromSheet() { return getTimeEntriesForCurrentUser({ page: 1, pageSize: 10 }).entries; }
+function assertEntryOwner_(rowIndex, context, email) {
+  const sheetRow = Number(rowIndex);
+  if (!Number.isInteger(sheetRow) || sheetRow < 2 || sheetRow > context.values.length) throw new Error('The selected entry no longer exists.');
+  if (String(context.values[sheetRow - 1][context.columns.email] || '').trim().toLowerCase() !== email) throw new Error('You can only change your own time entries.');
+  return sheetRow;
+}
+function updateTimeEntry(rowIndex, updatedEntry) {
+  const email = currentEmail_();
+  const valid = validateEntry_(updatedEntry);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const context = timeEntryContext_();
+    const targetRow = assertEntryOwner_(rowIndex, context, email);
+    const currentRow = context.values[targetRow - 1];
+    currentRow[context.columns.startdate] = valid.startDate;
+    currentRow[context.columns.enddate] = valid.endDate;
+    currentRow[context.columns.department] = valid.department;
+    currentRow[context.columns.category] = valid.category;
+    currentRow[context.columns.project] = valid.project;
+    currentRow[context.columns.instrument] = valid.instrument;
+    currentRow[context.columns.hours] = valid.hours;
+    context.sheet.getRange(targetRow, 1, 1, currentRow.length).setValues([currentRow]);
+  } finally {
+    lock.releaseLock();
+  }
+  return 'updated';
+}
+function deleteTimeEntry(rowIndex) {
+  const email = currentEmail_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const context = timeEntryContext_();
+    context.sheet.deleteRow(assertEntryOwner_(rowIndex, context, email));
+  } finally {
+    lock.releaseLock();
+  }
+  return 'deleted';
+}
+function getAllEntriesForDashboard() {
+  requireAdmin_();
+  const context = timeEntryContext_();
+  return context.values.slice(1).map((row, index) => entryFromRow_(row, index + 2, context.columns));
+}
+function getAllEntries() { return getAllEntriesForDashboard(); }
+function getLoggedHoursSummary() {
+  const email = currentEmail_();
+  const context = timeEntryContext_();
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  startOfWeek.setDate(startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7));
+  return context.values.slice(1).reduce((summary, row) => {
+    const entry = entryFromRow_(row, 0, context.columns);
+    if (entry.email !== email || !entry.startDate) return summary;
+    const date = dateValue_(entry.startDate);
+    if (date >= firstOfMonth) summary.monthHours += entry.hours;
+    if (date >= startOfWeek) summary.weekHours += entry.hours;
+    return summary;
+  }, { monthHours: 0, weekHours: 0 });
+}
+function submitFeedbackToSheet(payload) {
+  const message = cleanText_(payload && payload.message, 'Feedback', true);
+  getSheet_(FEEDBACK_SHEET).appendRow([Utilities.getUuid(), new Date(), currentEmail_(), message, '']);
+}
+function getFeedbackEntries() {
+  requireAdmin_();
+  const values = getSheet_(FEEDBACK_SHEET).getDataRange().getValues();
+  return values.slice(1).map(row => ({ id: row[0], date: row[1] instanceof Date ? row[1].toISOString() : row[1], email: row[2], feedback: row[3], status: row[4] || '' }));
+}
+function updateFeedbackStatus(payload) {
+  requireAdmin_();
+  const status = String(payload && payload.status || '');
+  if (!['', 'in progress', 'implemented', 'rejected'].includes(status)) throw new Error('Invalid feedback status.');
+  const sheet = getSheet_(FEEDBACK_SHEET);
+  const values = sheet.getDataRange().getDisplayValues();
+  const rowIndex = values.slice(1).findIndex(row => String(row[0]) === String(payload.id));
+  if (rowIndex === -1) throw new Error('Feedback item not found.');
+  sheet.getRange(rowIndex + 2, 5).setValue(status);
+}
+function validListSheet_(listName) {
+  if (!LIST_SHEETS.includes(listName)) throw new Error('Invalid list type.');
+  return listName;
+}
+function addItem(listName, item, isRemoval) {
+  validListSheet_(listName);
+  const email = currentEmail_();
+  const name = cleanText_(item, 'Item name', true);
+  const sheet = getSheet_(listName);
+  const values = sheet.getDataRange().getValues();
+  const columns = headerIndex_(values[0] || []);
+  const nameColumn = requiredHeader_(columns, 'name');
+  const statusColumn = requiredHeader_(columns, 'status');
+  const matchingActive = values.slice(1).some(row => String(row[nameColumn]).trim().toLowerCase() === name.toLowerCase() && String(row[statusColumn]).toLowerCase() === 'active');
+  const matchingDraft = values.slice(1).some(row => String(row[nameColumn]).trim().toLowerCase() === name.toLowerCase() && String(row[statusColumn]).toLowerCase() !== 'active');
+  if (isRemoval && !matchingActive) throw new Error('Only active items can be proposed for removal.');
+  if (!isRemoval && matchingActive) throw new Error('This item already exists.');
+  if (matchingDraft) throw new Error('This item already has a pending suggestion.');
+  const row = new Array(values[0].length).fill('');
+  row[nameColumn] = name;
+  row[statusColumn] = isRemoval ? `draft-remove:${email}` : email;
+  sheet.appendRow(row);
+}
+function getDraftFromSheet_(sheetName) {
+  const values = getSheet_(sheetName).getDataRange().getValues();
+  const columns = headerIndex_(values[0] || []);
+  const nameColumn = requiredHeader_(columns, 'name');
+  const statusColumn = requiredHeader_(columns, 'status');
+  return values.slice(1).filter(row => row[statusColumn] && String(row[statusColumn]).toLowerCase() !== 'active').map(row => {
+    const status = String(row[statusColumn]);
+    const removal = status.startsWith('draft-remove:');
+    return { name: row[nameColumn], suggesterEmail: removal ? status.slice('draft-remove:'.length) : status, type: removal ? 'removal' : 'addition' };
+  });
+}
+function getDraftItems() {
+  requireAdmin_();
+  return { categories: getDraftFromSheet_(CATEGORIES_SHEET), instruments: getDraftFromSheet_(INSTRUMENTS_SHEET), projects: getDraftFromSheet_(PROJECTS_SHEET) };
+}
+function approveItem(type, name) {
+  requireAdmin_(); validListSheet_(type);
+  const sheet = getSheet_(type);
+  const values = sheet.getDataRange().getValues();
+  const columns = headerIndex_(values[0] || []);
+  const nameColumn = requiredHeader_(columns, 'name');
+  const statusColumn = requiredHeader_(columns, 'status');
+  const target = values.slice(1).map((row, index) => ({ row, index: index + 2 })).reverse().find(item => String(item.row[nameColumn]) === String(name) && String(item.row[statusColumn]).toLowerCase() !== 'active');
+  if (!target) throw new Error('Draft item not found.');
+  if (String(target.row[statusColumn]).startsWith('draft-remove:')) {
+    sheet.deleteRow(target.index);
+    const refreshed = sheet.getDataRange().getValues();
+    const activeIndex = refreshed.slice(1).map((row, index) => ({ row, index: index + 2 })).find(item => String(item.row[nameColumn]) === String(name) && String(item.row[statusColumn]).toLowerCase() === 'active');
+    if (activeIndex) sheet.deleteRow(activeIndex.index);
+  } else {
+    sheet.getRange(target.index, statusColumn + 1).setValue('active');
+  }
+}
+function rejectItem(type, name) {
+  requireAdmin_(); validListSheet_(type);
+  const sheet = getSheet_(type);
+  const values = sheet.getDataRange().getValues();
+  const columns = headerIndex_(values[0] || []);
+  const nameColumn = requiredHeader_(columns, 'name');
+  const statusColumn = requiredHeader_(columns, 'status');
+  const target = values.slice(1).map((row, index) => ({ row, index: index + 2 })).reverse().find(item => String(item.row[nameColumn]) === String(name) && String(item.row[statusColumn]).toLowerCase() !== 'active');
+  if (!target) throw new Error('Draft item not found.');
+  sheet.deleteRow(target.index);
+}
+function deleteItem(listName, item) { rejectItem(listName, item); }
+function deleteDraftItem(type, itemName) { rejectItem(type, itemName); }
+function getList(listName) { return getActiveList_(validListSheet_(listName)); }
+function syncOldSheetData() {
+  requireAdmin_();
+  const oldSheet = SpreadsheetApp.openById('1uREIn3OcBbiSmKOymXlKpEGsSwBpOSrHFe65fyOvUAA').getSheetByName('2023');
+  const newSheet = getSheet_(TIME_ENTRIES_SHEET);
+  if (!oldSheet || oldSheet.getLastRow() < 2) return;
+  const data = oldSheet.getRange(2, 1, oldSheet.getLastRow() - 1, 9).getValues();
+  const transformed = data.map(row => [row[1], row[2], row[3], row[4], row[8], row[7], row[5], row[6]]);
+  if (transformed.length) newSheet.getRange(newSheet.getLastRow() + 1, 1, transformed.length, 8).setValues(transformed);
+}
+// Supabase application API. These functions are used by ui-v3.html and keep
+// the browser away from database credentials and user-email authorization.
+function ttSupabaseRequest_(path, method, payload) {
+  const properties = PropertiesService.getScriptProperties();
+  const baseUrl = properties.getProperty('SUPABASE_URL');
+  const secretKey = properties.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+  if (!baseUrl || !secretKey) throw new Error('Supabase connection settings are missing.');
+  const response = UrlFetchApp.fetch(`${baseUrl.replace(/\/$/, '')}/rest/v1/${path}`, {
+    method: method || 'get',
+    contentType: 'application/json',
+    headers: { apikey: secretKey, Authorization: `Bearer ${secretKey}`, Prefer: 'return=representation' },
+    payload: payload ? JSON.stringify(payload) : undefined,
+    muteHttpExceptions: true
+  });
+  const status = response.getResponseCode();
+  const body = response.getContentText();
+  if (status < 200 || status >= 300) throw new Error(`Supabase request failed (${status}): ${body}`);
+  return body ? JSON.parse(body) : null;
+}
+function ttActiveOptions_() {
+  const select = 'id,name';
+  return {
+    departments: ttSupabaseRequest_(`departments?is_active=eq.true&select=${select}&order=name.asc`, 'get'),
+    categories: ttSupabaseRequest_('categories?is_active=eq.true&select=id,name,requires_project,requires_instrument&order=name.asc', 'get'),
+    projects: ttSupabaseRequest_(`projects?is_active=eq.true&select=${select}&order=name.asc`, 'get'),
+    instruments: ttSupabaseRequest_(`instruments?is_active=eq.true&select=${select}&order=name.asc`, 'get')
+  };
+}
+function ttDateKey_(date) {
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+function getTimeTrackerBootstrap() {
+  const email = currentEmail_();
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  startOfWeek.setDate(startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7));
+  const monthStart = ttDateKey_(firstOfMonth);
+  const weekStart = ttDateKey_(startOfWeek);
+  const encodedEmail = encodeURIComponent(email);
+  const [roleRow] = ttSupabaseRequest_(`user_roles?email=eq.${encodedEmail}&select=role`, 'get');
+  const dailyRows = ttSupabaseRequest_(`time_entry_days?user_email=eq.${encodedEmail}&work_date=gte.${monthStart}&select=work_date,hours`, 'get');
+  const recentRows = ttSupabaseRequest_(`time_entries?user_email=eq.${encodedEmail}&select=id,start_date,total_hours,department_id,category_id&order=created_at.desc&limit=5`, 'get');
+  const options = ttApplyDropdownPreferences_(ttActiveOptions_(), ttDropdownPreferences_(email));
+  const allDepartments = ttSupabaseRequest_('departments?select=id,name', 'get');
+  const allCategories = ttSupabaseRequest_('categories?select=id,name', 'get');
+  const departmentNames = allDepartments.reduce((items, item) => Object.assign(items, { [item.id]: item.name }), {});
+  const categoryNames = allCategories.reduce((items, item) => Object.assign(items, { [item.id]: item.name }), {});
+  const summary = dailyRows.reduce((result, row) => {
+    const hours = Number(row.hours) || 0;
+    result.monthHours += hours;
+    if (row.work_date >= weekStart) result.weekHours += hours;
+    return result;
+  }, { monthHours: 0, weekHours: 0 });
+  summary.monthHours = Number(summary.monthHours.toFixed(2));
+  summary.weekHours = Number(summary.weekHours.toFixed(2));
+  return {
+    email,
+    role: roleRow ? roleRow.role : 'user',
+    options,
+    summary,
+    recentEntries: recentRows.map(row => ({
+      id: row.id,
+      startDate: row.start_date,
+      hours: Number(row.total_hours) || 0,
+      departmentName: departmentNames[row.department_id] || 'Archived department',
+      categoryName: categoryNames[row.category_id] || 'Archived category'
+    }))
+  };
+}
+function getTimeTrackerDropdownSettings() {
+  const email = currentEmail_();
+  return { options: ttActiveOptions_(), preferences: ttDropdownPreferences_(email) };
+}
+function saveTimeTrackerDropdownSettings(preferences) {
+  const email = currentEmail_();
+  const list = value => [...new Set(Array.isArray(value) ? value.map(String).filter(Boolean) : [])];
+  const payload = { user_email: email, department_ids: list(preferences && preferences.departmentIds), category_ids: list(preferences && preferences.categoryIds), project_ids: list(preferences && preferences.projectIds), instrument_ids: list(preferences && preferences.instrumentIds), updated_at: new Date().toISOString() };
+  const existing = ttSupabaseRequest_(`user_dropdown_preferences?user_email=eq.${encodeURIComponent(email)}&select=user_email`, 'get');
+  return existing.length ? ttSupabaseRequest_(`user_dropdown_preferences?user_email=eq.${encodeURIComponent(email)}`, 'patch', payload) : ttSupabaseRequest_('user_dropdown_preferences', 'post', payload);
+}
+
+function submitTimeEntryWithAllocation(entry) {
+  const email = currentEmail_();
+  const days = Array.isArray(entry && entry.dailyHours) ? entry.dailyHours : [];
+  const totalHours = Number(entry && entry.hours);
+  if (!entry || !entry.startDate || !entry.endDate || !entry.departmentId || !entry.categoryId) {
+    throw new Error('Please complete all required fields.');
+  }
+  if (!isFinite(totalHours) || totalHours < 0 || totalHours > 744) throw new Error('Hours must be between 0 and 744.');
+  const allocatedHours = days.reduce((sum, day) => sum + (Number(day.hours) || 0), 0);
+  if (!days.length || Math.abs(allocatedHours - totalHours) > 0.001) throw new Error('Daily allocation must equal total hours.');
+  return ttSupabaseRequest_('rpc/save_time_entry_with_allocation', 'post', {
+    p_user_email: email,
+    p_department_id: entry.departmentId,
+    p_category_id: entry.categoryId,
+    p_project_id: entry.projectId || null,
+    p_instrument_id: entry.instrumentId || null,
+    p_start_date: entry.startDate,
+    p_end_date: entry.endDate,
+    p_total_hours: totalHours,
+    p_daily_hours: days.map(day => ({ work_date: day.workDate, hours: Number(day.hours) }))
+  });
+}
+
+
+function updateTimeTrackerEntry(entry) {
+  const email = currentEmail_();
+  const days = Array.isArray(entry && entry.dailyHours)
+    ? entry.dailyHours
+    : [];
+  const totalHours = Number(entry && entry.hours);
+
+  if (
+    !entry ||
+    !entry.id ||
+    !entry.startDate ||
+    !entry.endDate ||
+    !entry.departmentId ||
+    !entry.categoryId
+  ) {
+    throw new Error('Please complete all required fields.');
+  }
+
+  if (!isFinite(totalHours) || totalHours < 0 || totalHours > 744) {
+    throw new Error('Hours must be between 0 and 744.');
+  }
+
+  const allocatedHours = days.reduce(
+    (sum, day) => sum + (Number(day.hours) || 0),
+    0
+  );
+
+  if (
+    !days.length ||
+    Math.abs(allocatedHours - totalHours) > 0.001
+  ) {
+    throw new Error('Daily allocation must equal total hours.');
+  }
+
+  return ttSupabaseRequest_(
+    'rpc/update_time_entry_with_allocation',
+    'post',
+    {
+      p_entry_id: entry.id,
+      p_user_email: email,
+      p_department_id: entry.departmentId,
+      p_category_id: entry.categoryId,
+      p_project_id: entry.projectId || null,
+      p_instrument_id: entry.instrumentId || null,
+      p_start_date: entry.startDate,
+      p_end_date: entry.endDate,
+      p_total_hours: totalHours,
+      p_daily_hours: days.map(day => ({
+        work_date: day.workDate,
+        hours: Number(day.hours)
+      }))
+    }
+  );
+}
+
+function ttAllReferenceNames_() {
+  const makeMap = rows => rows.reduce((result, row) => Object.assign(result, { [row.id]: row.name }), {});
+  return {
+    departments: makeMap(ttSupabaseRequest_('departments?select=id,name', 'get')),
+    categories: makeMap(ttSupabaseRequest_('categories?select=id,name', 'get')),
+    projects: makeMap(ttSupabaseRequest_('projects?select=id,name', 'get')),
+    instruments: makeMap(ttSupabaseRequest_('instruments?select=id,name', 'get'))
+  };
+}
+function ttApplyDropdownPreferences_(options, preferences) {
+  const filter = (items, ids) => ids && ids.length ? items.filter(item => ids.includes(item.id)) : items;
+  return { departments: filter(options.departments, preferences.departmentIds), categories: filter(options.categories, preferences.categoryIds), projects: filter(options.projects, preferences.projectIds), instruments: filter(options.instruments, preferences.instrumentIds) };
+}
+function ttDropdownPreferences_(email) {
+  const [row] = ttSupabaseRequest_(`user_dropdown_preferences?user_email=eq.${encodeURIComponent(email)}&select=*`, 'get');
+  return row ? { departmentIds: row.department_ids || [], categoryIds: row.category_ids || [], projectIds: row.project_ids || [], instrumentIds: row.instrument_ids || [] } : { departmentIds: [], categoryIds: [], projectIds: [], instrumentIds: [] };
+}
+
+function getTimeTrackerHistory(filters) {
+  const options = filters || {};
+  const email = currentEmail_();
+  const page = Math.max(Number(options.page) || 1, 1);
+  const pageSize = Math.min(Math.max(Number(options.pageSize) || 25, 1), 100);
+  const query = [
+    `user_email=eq.${encodeURIComponent(email)}`,
+    'select=id,start_date,end_date,total_hours,department_id,category_id,project_id,instrument_id,created_at',
+    'order=start_date.desc,created_at.desc',
+    `limit=${pageSize + 1}`,
+    `offset=${(page - 1) * pageSize}`
+  ];
+  if (options.startDate) query.push(`start_date=gte.${encodeURIComponent(options.startDate)}`);
+  if (options.endDate) query.push(`end_date=lte.${encodeURIComponent(options.endDate)}`);
+  if (options.categoryId) query.push(`category_id=eq.${encodeURIComponent(options.categoryId)}`);
+  if (options.departmentId) query.push(`department_id=eq.${encodeURIComponent(options.departmentId)}`);
+  const rows = ttSupabaseRequest_(`time_entries?${query.join('&')}`, 'get');
+  const names = ttAllReferenceNames_();
+  const hasMore = rows.length > pageSize;
+  return {
+    entries: rows.slice(0, pageSize).map(row => ({
+      id: row.id,
+      startDate: row.start_date,
+      endDate: row.end_date,
+      hours: Number(row.total_hours) || 0,
+      departmentId: row.department_id,
+      categoryId: row.category_id,
+      projectId: row.project_id,
+      instrumentId: row.instrument_id,
+      departmentName: names.departments[row.department_id] || 'Archived department',
+      categoryName: names.categories[row.category_id] || 'Archived category',
+      projectName: names.projects[row.project_id] || '',
+      instrumentName: names.instruments[row.instrument_id] || ''
+    })),
+    page,
+    hasMore
+  };
+}
+
+function getTimeTrackerEntryForEdit(entryId) {
+  const email = currentEmail_();
+  const rows = ttSupabaseRequest_(`time_entries?id=eq.${encodeURIComponent(entryId)}&user_email=eq.${encodeURIComponent(email)}&select=id,start_date,end_date,total_hours,department_id,category_id,project_id,instrument_id`, 'get');
+  if (!rows.length) throw new Error('This entry no longer exists or cannot be edited.');
+  const dailyHours = ttSupabaseRequest_(`time_entry_days?entry_id=eq.${encodeURIComponent(entryId)}&order=work_date.asc&select=work_date,hours`, 'get');
+  const entry = rows[0];
+  return { id: entry.id, startDate: entry.start_date, endDate: entry.end_date, hours: Number(entry.total_hours) || 0, departmentId: entry.department_id, categoryId: entry.category_id, projectId: entry.project_id || '', instrumentId: entry.instrument_id || '', dailyHours: dailyHours.map(day => ({ workDate: day.work_date, hours: Number(day.hours) || 0 })) };
+}
+
+function deleteTimeTrackerEntry(entryId) {
+  const email = currentEmail_();
+  const deleted = ttSupabaseRequest_(`time_entries?id=eq.${encodeURIComponent(entryId)}&user_email=eq.${encodeURIComponent(email)}`, 'delete');
+  if (!deleted || !deleted.length) throw new Error('This entry no longer exists or cannot be deleted.');
+  return 'deleted';
+}
+
+// Returns dashboard aggregates. Admins may request another user's email; all
+// other filter values are validated and applied server-side.
+function getTimeTrackerDashboard(filters) {
+  const options = typeof filters === 'object' && filters ? filters : {};
+  const requesterEmail = currentEmail_();
+  const [roleRow] = ttSupabaseRequest_(`user_roles?email=eq.${encodeURIComponent(requesterEmail)}&select=role`, 'get');
+  const requesterRole = roleRow ? roleRow.role : 'user';
+  const canViewOtherUsers = ['admin', 'superadmin'].includes(requesterRole);
+  const requestedEmails = (Array.isArray(options.userEmails) ? options.userEmails : [])
+    .map(email => String(email || '').trim().toLowerCase()).filter(Boolean);
+  const allUsers = canViewOtherUsers && options.allUsers === true;
+  const selectedEmails = !canViewOtherUsers ? [requesterEmail] : (allUsers ? null : (requestedEmails.length ? requestedEmails : [requesterEmail]));
+  const today = new Date();
+  const defaultStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const defaultEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+  const startDate = options.startDate ? requireDate_(options.startDate, 'From date') : ttDateKey_(defaultStart);
+  const endDate = options.endDate ? requireDate_(options.endDate, 'To date') : ttDateKey_(defaultEnd);
+  if (endDate < startDate) throw new Error('The end date cannot be before the start date.');
+  const startValue = dateValue_(startDate);
+  const endValue = dateValue_(endDate);
+  const rangeDays = Math.round((endValue.getTime() - startValue.getTime()) / 86400000) + 1;
+  const rawRows = ttSupabaseRequest_('rpc/dashboard_resource_rows', 'post', {
+    p_start_date: startDate,
+    p_end_date: endDate,
+    p_user_emails: selectedEmails,
+    p_department_id: options.departmentId || null,
+    p_category_id: options.categoryId || null,
+    p_project_id: options.projectId || null,
+    p_instrument_id: options.instrumentId || null
+  });
+  const rows = rawRows.map(row => ({
+    departmentName: row.department_name,
+    categoryName: row.category_name,
+    userEmail: row.user_email,
+    instrumentName: row.instrument_name || '',
+    projectName: row.project_name || '',
+    hours: Number(row.hours) || 0
+  }));
+  const categoryTotals = rows.reduce((result, row) => {
+    result[row.categoryName] = (result[row.categoryName] || 0) + row.hours;
+    return result;
+  }, {});
+  const categories = Object.keys(categoryTotals)
+    .map(name => ({ name, hours: Number(categoryTotals[name].toFixed(2)) }))
+    .sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
+  const totalHours = rows.reduce((sum, row) => sum + row.hours, 0);
+  const averagePerWeek = totalHours / Math.max(rangeDays / 7, 1);
+  return { period: { startDate, endDate }, viewerRole: requesterRole, selectedUserCount: selectedEmails ? selectedEmails.length : null, allUsers, totalHours: Number(totalHours.toFixed(2)), averagePerWeek: Number(averagePerWeek.toFixed(2)), categories, rows };
+}
+
+function getTimeTrackerDashboardUsers() {
+  const email = currentEmail_();
+  const [roleRow] = ttSupabaseRequest_(`user_roles?email=eq.${encodeURIComponent(email)}&select=role`, 'get');
+  if (!roleRow || !['admin', 'superadmin'].includes(roleRow.role)) throw new Error('Administrator access is required.');
+  return ttSupabaseRequest_('rpc/dashboard_user_emails', 'post', {}).map(row => row.email);
+}
+
+function ttCurrentRole_() {
+  const email = currentEmail_();
+  const [row] = ttSupabaseRequest_(`user_roles?email=eq.${encodeURIComponent(email)}&select=role`, 'get');
+  return { email, role: row ? row.role : 'user' };
+}
+function ttRequireAdmin_() {
+  const context = ttCurrentRole_();
+  if (!['admin', 'superadmin'].includes(context.role)) throw new Error('Administrator access is required.');
+  return context;
+}
+function ttRequireSuperadmin_() {
+  const context = ttCurrentRole_();
+  if (context.role !== 'superadmin') throw new Error('Superadmin access is required.');
+  return context;
+}
+function ttReferenceTable_(type) {
+  if (!['departments', 'categories', 'projects', 'instruments'].includes(type)) throw new Error('Invalid item type.');
+  return type;
+}
+function submitTimeTrackerSuggestion(payload) {
+  const email = currentEmail_();
+  const itemType = ttReferenceTable_(String(payload && payload.itemType || ''));
+  const action = String(payload && payload.action || '');
+  if (!['add', 'remove'].includes(action)) throw new Error('Invalid suggestion action.');
+  const itemName = String(payload && payload.itemName || '').trim();
+  const targetId = String(payload && payload.targetId || '').trim();
+  if (!itemName || itemName.length > 160) throw new Error('Enter a valid item name.');
+  if (action === 'remove' && !targetId) throw new Error('Choose an item to remove.');
+  const duplicateQuery = `item_suggestions?submitted_by=eq.${encodeURIComponent(email)}&item_type=eq.${itemType}&action=eq.${action}&item_name=eq.${encodeURIComponent(itemName)}&status=eq.pending&select=id`;
+  if (ttSupabaseRequest_(duplicateQuery, 'get').length) throw new Error('You already have a pending suggestion for this item.');
+  return ttSupabaseRequest_('item_suggestions', 'post', { submitted_by: email, item_type: itemType, action, item_name: itemName, target_id: targetId || null, status: 'pending' });
+}
+function getTimeTrackerMySuggestions() {
+  const email = currentEmail_();
+  return ttSupabaseRequest_(`item_suggestions?submitted_by=eq.${encodeURIComponent(email)}&select=*&order=created_at.desc`, 'get');
+}
+function submitTimeTrackerFeedback(message) {
+  const email = currentEmail_();
+  const text = String(message || '').trim();
+  if (!text || text.length > 4000) throw new Error('Feedback must be between 1 and 4000 characters.');
+  return ttSupabaseRequest_('app_feedback', 'post', { submitted_by: email, message: text, status: 'open' });
+}
+function getTimeTrackerMyFeedback() {
+  const email = currentEmail_();
+  return ttSupabaseRequest_(`app_feedback?submitted_by=eq.${encodeURIComponent(email)}&select=*&order=created_at.desc`, 'get');
+}
+function getTimeTrackerAdminData() {
+  const context = ttRequireAdmin_();
+  return {
+    role: context.role,
+    suggestions: ttSupabaseRequest_('item_suggestions?status=eq.pending&select=*&order=created_at.asc', 'get'),
+    feedback: ttSupabaseRequest_('app_feedback?select=*&order=created_at.desc', 'get'),
+    roles: context.role === 'superadmin' ? ttSupabaseRequest_('user_roles?select=email,role&order=email.asc', 'get') : []
+  };
+}
+function reviewTimeTrackerSuggestion(id, decision, note) {
+  const context = ttRequireAdmin_();
+  if (!['approved', 'rejected'].includes(decision)) throw new Error('Invalid review decision.');
+  const [suggestion] = ttSupabaseRequest_(`item_suggestions?id=eq.${encodeURIComponent(id)}&status=eq.pending&select=*`, 'get');
+  if (!suggestion) throw new Error('This suggestion is no longer pending.');
+  if (decision === 'approved') {
+    const table = ttReferenceTable_(suggestion.item_type);
+    if (suggestion.action === 'remove') {
+      ttSupabaseRequest_(`${table}?id=eq.${encodeURIComponent(suggestion.target_id)}`, 'patch', { is_active: false });
+    } else {
+      const existing = ttSupabaseRequest_(`${table}?name=eq.${encodeURIComponent(suggestion.item_name)}&is_active=eq.true&select=id`, 'get');
+      if (existing.length) throw new Error('An active item with this name already exists.');
+      const item = { name: suggestion.item_name, is_active: true };
+      if (table === 'categories') Object.assign(item, { requires_project: false, requires_instrument: false });
+      ttSupabaseRequest_(table, 'post', item);
+    }
+  }
+  return ttSupabaseRequest_(`item_suggestions?id=eq.${encodeURIComponent(id)}`, 'patch', { status: decision, reviewed_by: context.email, reviewed_at: new Date().toISOString(), review_note: String(note || '').trim() || null });
+}
+function replyTimeTrackerFeedback(id, reply, status) {
+  const context = ttRequireAdmin_();
+  const text = String(reply || '').trim();
+  if (!text || text.length > 4000) throw new Error('Reply must be between 1 and 4000 characters.');
+  const nextStatus = ['replied', 'closed'].includes(status) ? status : 'replied';
+  return ttSupabaseRequest_(`app_feedback?id=eq.${encodeURIComponent(id)}`, 'patch', { reply: text, status: nextStatus, replied_by: context.email, replied_at: new Date().toISOString() });
+}
+function assignTimeTrackerAdmin(email) {
+  ttRequireSuperadmin_();
+  const target = String(email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) throw new Error('Enter a valid email address.');
+  const existing = ttSupabaseRequest_(`user_roles?email=eq.${encodeURIComponent(target)}&select=email`, 'get');
+  return existing.length ? ttSupabaseRequest_(`user_roles?email=eq.${encodeURIComponent(target)}`, 'patch', { role: 'admin' }) : ttSupabaseRequest_('user_roles', 'post', { email: target, role: 'admin' });
+}
+function setTimeTrackerUserRole(email, role) {
+  const context = ttRequireSuperadmin_();
+  const target = String(email || '').trim().toLowerCase();
+  const nextRole = String(role || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) throw new Error('Enter a valid email address.');
+  if (!['user', 'admin', 'superadmin'].includes(nextRole)) throw new Error('Invalid role.');
+  const existingRoles = ttSupabaseRequest_('user_roles?select=email,role', 'get');
+  const current = existingRoles.find(item => item.email === target);
+  const superadmins = existingRoles.filter(item => item.role === 'superadmin');
+  if (current && current.role === 'superadmin' && nextRole !== 'superadmin' && superadmins.length === 1) {
+    throw new Error('At least one superadmin must remain. Assign another superadmin first.');
+  }
+  if (nextRole === 'user') {
+    if (current) return ttSupabaseRequest_(`user_roles?email=eq.${encodeURIComponent(target)}`, 'delete');
+    return 'unchanged';
+  }
+  return current ? ttSupabaseRequest_(`user_roles?email=eq.${encodeURIComponent(target)}`, 'patch', { role: nextRole }) : ttSupabaseRequest_('user_roles', 'post', { email: target, role: nextRole });
+}
+
+
+
+
+

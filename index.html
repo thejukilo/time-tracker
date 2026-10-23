@@ -1,0 +1,1491 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>GCS Mol Labs - Time Tracking</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css" rel="stylesheet" />
+
+
+<style>
+.table td, .table th {
+  vertical-align: middle;
+  height: 40px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.table-xs {
+  font-size: 0.75rem;
+}
+.truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sortable-table th {
+  cursor: pointer;
+}
+.modal {
+  z-index: 1055 !important;
+}
+.modal-backdrop {
+  z-index: 1050 !important;
+}
+</style>
+</head>
+
+<body class="bg-light">
+  <!-- START OF APP //-->
+<div id="app" class="container py-5">    
+  <!-- APP LOADER (spinner) //--> 
+<div v-if="isLoadingApp" class="loading-overlay">
+  <div class="text-center">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p class="mt-2">Loading data...</p>
+  </div>
+</div>
+
+ <!-- PREFERENCES, DASHBOARD, and SUGGESTIONS BUTTONS -->
+<div class="text-end mb-3">
+  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#preferencesModal">
+    <i class="bi bi-gear"></i> Preferences
+  </button>
+<button 
+  class="btn btn-sm btn-outline-primary ms-2" 
+  @click="openDashboardLink">
+  <i class="bi bi-bar-chart"></i> Dashboard
+</button>
+  <button class="btn btn-sm btn-outline-success ms-2" data-bs-toggle="modal" data-bs-target="#adminModal">
+    <i class="bi bi-plus-square"></i> Suggest New/Remove item
+  </button>
+    <button v-if="isAdmin" class="btn btn-sm btn-outline-success ms-2" data-bs-toggle="modal" data-bs-target="#approveModal">
+    <i class="bi bi-check-circle"></i> Approve Items
+  </button>
+  <button v-if="isAdmin" class="btn btn-sm btn-outline-info ms-2" data-bs-toggle="modal" data-bs-target="#feedbackListModal">
+  <i class="bi bi-chat-right-text"></i> Show Feedback
+</button>
+</div>
+  
+  <!-- START OF MAIN CARD //-->
+  <div class="card mx-auto shadow-sm" style="max-width: 480px;">
+    <div class="card-body">
+      <h2 class="text-center fw-bold">GCS Mol Labs</h2>
+      <p class="text-center text-muted">Time Tracker Tool v2.2</p>
+      
+      <!-- START OF FORM //-->
+      <form @submit.prevent="submitForm">
+        <div class="mb-3">
+            <label class="form-label">Start Date:</label>
+            <input type="date" class="form-control" v-model="form.startDate" required>
+        </div>
+
+<div class="mb-3">
+  <label class="form-label">End Date:</label>
+  <input type="date" class="form-control" v-model="form.endDate" required>
+</div>
+
+        <div class="mb-3">
+          <label class="form-label">Department:</label>
+          <select class="form-select" v-model="form.department" required>
+            <option disabled value="">Select Department</option>
+            <option v-for="d in filteredDepartments" :key="d" :value="d">{{ d }}</option>
+          </select>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Category:</label>
+          <select class="form-select" v-model="form.category" required>
+            <option disabled value="">Select Category</option>
+            <option v-for="c in categories" :key="c.name" :value="c.name">{{ c.name }}</option>
+          </select>
+        </div>
+
+        <div class="mb-3" v-if="showProjectDropdown">
+          <label class="form-label">Project:</label>
+          <select class="form-select" v-model="form.project">
+            <option disabled value="">Select Project</option>
+            <option v-for="p in filteredProjects" :key="p" :value="p">{{ p }}</option>
+          </select>
+        </div>
+
+        <div class="mb-3" v-if="showInstrumentDropdown">
+          <label class="form-label">Instrument:</label>
+          <select class="form-select" v-model="form.instrument">
+            <option disabled value="">Select Instrument</option>
+            <option v-for="i in filteredInstruments" :key="i" :value="i">{{ i }}</option>
+         </select>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Hours:</label>
+          <input type="number" min="0" class="form-control" v-model="form.hours" required>
+        </div>
+
+        <div class="d-flex gap-2">
+          <button class="btn btn-primary w-100" type="submit" :disabled="isSubmitting">
+              Save
+          </button>
+          <button class="btn btn-success w-100" type="button" @click="showEntries" :disabled="isSubmitting">Entry History</button>
+        </div>
+
+        <div v-if="isSubmitting" class="text-center mt-3">
+          <div class="spinner-border text-primary" role="status"></div>
+           <p class="mt-2">Saving entry...</p>
+        </div>
+
+        <div v-if="submitSuccess" class="alert alert-success mt-3 text-center">
+           Time entry saved!
+        </div>
+      </form>
+      <!-- END OF FORM //-->
+
+
+    </div> <!-- card body -->
+  </div>
+<!-- END OF MAIN CARD //-->
+
+<!-- logged hours summary //-->
+<div class="card mt-4 shadow-sm">
+  <div class="card-body">
+    <h6 class="fw-bold">My Summary</h6>
+    <p class="mb-1">Hours logged this month: <strong>{{ summary.monthHours }}</strong></p>
+    <p class="mb-0">Hours logged this week: <strong>{{ summary.weekHours }}</strong></p>
+  </div>
+</div>
+<!-- end logged hours summary //-->
+
+
+<!-- START OF ENTRIES TABLE //-->
+<div v-if="showingEntries" class="card mt-4 shadow-sm">
+  <div class="card-body">
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0">Your Entry History</h5>
+  <button class="btn btn-sm btn-outline-secondary" @click="showingEntries = false">
+    <i class="bi bi-x-circle"></i> Close
+  </button>
+</div>
+    <form class="row g-2 mb-3" @submit.prevent="applyHistoryFilters">
+      <div class="col-sm-4">
+        <label class="form-label form-label-sm mb-1" for="historyStartDate">From</label>
+        <input id="historyStartDate" type="date" class="form-control form-control-sm" v-model="historyFilters.startDate">
+      </div>
+      <div class="col-sm-4">
+        <label class="form-label form-label-sm mb-1" for="historyEndDate">To</label>
+        <input id="historyEndDate" type="date" class="form-control form-control-sm" v-model="historyFilters.endDate">
+      </div>
+      <div class="col-sm-4 d-flex align-items-end gap-2">
+        <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" @click="clearHistoryFilters">Clear</button>
+      </div>
+    </form>
+    <div v-if="isLoadingEntries" class="text-center my-3">
+      <div class="spinner-border text-primary" role="status"></div>
+      <p>Loading entries...</p>
+    </div>
+    <div v-else-if="!latestEntries.length" class="text-center text-muted my-4">No entries match this date range.</div>
+    <table v-else class="table table-sm table-bordered">
+      <thead class="table-light">
+        <tr>
+          <th>Start</th>
+          <th>End</th>
+          <th>Department</th>
+          <th>Category</th>
+          <th>Project</th>
+          <th>Instrument</th>
+          <th>Hours</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="entry in latestEntries" :key="entry.rowIndex">
+          <td>{{ formatDate(entry.startDate) }}</td>
+          <td>{{ formatDate(entry.endDate) }}</td>
+          <td>{{ entry.department }}</td>
+          <td>{{ entry.category }}</td>
+          <td>{{ entry.project }}</td>
+          <td>{{ entry.instrument }}</td>
+          <td>{{ entry.hours }}</td>
+          <td>
+  <button class="btn btn-sm btn-outline-secondary" @click="editEntry(entry)">Edit</button>
+  <button 
+    class="btn btn-sm btn-outline-danger" 
+    @click="deleteEntry(entry)" 
+    :disabled="deletingEntryId === entry.rowIndex">
+    <span v-if="deletingEntryId === entry.rowIndex" 
+          class="spinner-border spinner-border-sm me-1" 
+          role="status" aria-hidden="true"></span>
+    Delete
+  </button>
+</td>
+        </tr>
+      </tbody>
+    </table>
+    <div v-if="historyPageCount > 1" class="d-flex justify-content-between align-items-center mt-3">
+      <small class="text-muted">{{ historyTotal }} entries · Page {{ historyPage }} of {{ historyPageCount }}</small>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-outline-secondary" @click="loadEntryHistory(historyPage - 1)" :disabled="historyPage <= 1">Previous</button>
+        <button class="btn btn-outline-secondary" @click="loadEntryHistory(historyPage + 1)" :disabled="historyPage >= historyPageCount">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- END OF ENTRIES TABLE //-->
+
+
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Entry</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">Start Date</label>
+          <input type="date" class="form-control" v-model="editForm.startDate">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">End Date</label>
+          <input type="date" class="form-control" v-model="editForm.endDate">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Department</label>
+          <select class="form-select" v-model="editForm.department">
+            <option v-for="d in departments" :value="d">{{ d }}</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Category</label>
+          <select class="form-select" v-model="editForm.category">
+            <option v-for="c in categories" :value="c.name">{{ c.name }}</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Project</label>
+          <select class="form-select" v-model="editForm.project">
+            <option v-for="p in projects" :value="p">{{ p }}</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Instrument</label>
+          <select class="form-select" v-model="editForm.instrument">
+            <option v-for="i in instruments" :value="i">{{ i }}</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Hours</label>
+          <input type="number" min="0" class="form-control" v-model="editForm.hours">
+          <small v-if="editForm.hours < 0" class="text-danger">Value must be greater than or equal to 0.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" @click="saveEditedEntry" :disabled="isSavingEdit">
+              <span v-if="isSavingEdit" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+          Save</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal" :disabled="isSavingEdit">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN MODAl //-->
+<!-- ADMIN MODAL -->
+<div class="modal fade" id="adminModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-hidden="true">
+  <div class="modal-dialog modal-xl" style="min-width: 1000px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Suggest New/remove item</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <iframe src="https://script.google.com/a/macros/roche.com/s/AKfycbzmk9Be_6wY46DYcafktRW6on0UeO86I72fWd7XMvuROLNMBppo1pZPNkEy-YshjFAt/exec?page=admin" style="width: 100%; height: 800px; border: none;"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
+<!--- // ADMIN MODAL //-->
+
+
+<!-- feedback modal //-->
+<div class="modal fade" id="feedbackModal" tabindex="-1" aria-labelledby="feedbackModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="feedbackModalLabel">Tool Feedback</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Use this form to give feedback to the tool — issues, questions, suggestions... We'll get back to you ASAP.</p>
+        <textarea v-model="feedbackText" class="form-control" rows="5" placeholder="Enter your feedback here..."></textarea>
+        <div v-if="feedbackSubmitted" class="alert alert-success mt-3">Thanks! Your feedback was submitted.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button class="btn btn-primary" 
+        @click="submitFeedback" 
+        :disabled="!feedbackText || feedbackSubmitted || isSavingFeedback">
+  <span v-if="isSavingFeedback" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+  Submit
+</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- feedback modal above //-->
+
+<!-- show feedback modal below //-->
+<div class="modal fade" id="feedbackListModal" tabindex="-1" aria-labelledby="feedbackListModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="feedbackListModalLabel">User Feedback</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div v-if="isLoadingFeedback" class="text-center my-3">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p>Loading feedback...</p>
+        </div>
+        <!-- filters //-->
+        <div v-else>
+          <div class="mb-3">
+            <label class="form-label fw-bold">Filter by status:</label>
+            <select class="form-select form-select-sm w-auto d-inline-block" v-model="feedbackFilter">
+              <option value="">No Status</option>
+              <option value="in progress">In Progress</option>
+              <option value="implemented">Implemented</option>
+              <option value="rejected">Rejected</option>
+              <option value="all">Show All</option>
+            </select>
+          </div>
+
+          <div v-if="filteredFeedbackList.length === 0" class="text-muted text-center">No feedback matches the selected filter.</div>
+          <div v-for="item in filteredFeedbackList" :key="item.timestamp" class="border-bottom pb-3 mb-3">
+            <p><strong>At {{ item.date }} {{ getNameFromEmail(item.email) }} said:</strong></p>
+            <p>{{ item.message }}</p>
+            <div class="btn-group btn-group-sm mt-2" role="group">
+              <button 
+                type="button" 
+                class="btn" 
+                :class="{'btn-outline-secondary': item.status !== '', 'btn-secondary': item.status === ''}" 
+                @click="setFeedbackStatus(item, '')">
+                <i class="bi bi-circle"></i> No Status
+              </button>
+              <button 
+                type="button" 
+                class="btn" 
+                :class="{'btn-outline-primary': item.status !== 'in progress', 'btn-primary': item.status === 'in progress'}" 
+                @click="setFeedbackStatus(item, 'in progress')">
+                <i class="bi bi-hourglass-split"></i> In Progress
+              </button>
+              <button 
+                type="button" 
+                class="btn" 
+                :class="{'btn-outline-success': item.status !== 'implemented', 'btn-success': item.status === 'implemented'}" 
+                @click="setFeedbackStatus(item, 'implemented')">
+                <i class="bi bi-check-circle"></i> Implemented
+              </button>
+              <button 
+                type="button" 
+                class="btn" 
+                :class="{'btn-outline-danger': item.status !== 'rejected', 'btn-danger': item.status === 'rejected'}" 
+                @click="setFeedbackStatus(item, 'rejected')">
+                <i class="bi bi-x-circle"></i> Rejected
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- show feedback modal above //-->
+
+
+<!-- APPROVE ITEMS MODAL //-->
+<div class="modal fade" id="approveModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Approve Suggested Items</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div v-if="approveSuccessMessage" class="alert alert-success m-3">
+        {{ approveSuccessMessage }}
+      </div>
+
+      <div class="modal-body">
+        <div v-if="isLoadingApprove" class="text-center my-3">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p>Loading draft items...</p>
+        </div>
+
+        <div v-else>
+          <div v-for="(list, type) in draftItems" :key="type" class="mb-4">
+            <h6 class="text-capitalize">{{ type }}</h6>
+            <ul class="list-group">
+              <li v-for="(item, index) in list" :key="index" class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <strong>{{ item.name }}</strong>
+                <small class="text-muted ms-2">suggested by: {{ getNameFromEmail(item.suggesterEmail) }}</small>
+                <small v-if="item.type === 'removal'" class="text-danger ms-2">(suggested removal)</small>
+              </div>
+              <div class="d-flex gap-2">
+                <button 
+                  class="btn btn-sm btn-success" 
+                  @click="approveItem(type, item.name)"
+                  :disabled="approvingItem === item.name">
+                  <span v-if="approvingItem === item.name" class="spinner-border spinner-border-sm me-1"></span>
+                  <span v-else>Approve</span>
+                </button>
+                <button 
+                  class="btn btn-sm btn-danger" 
+                  @click="rejectItem(type, item.name)"
+                  :disabled="rejectingItem === item.name">
+                  <span v-if="rejectingItem === item.name" class="spinner-border spinner-border-sm me-1"></span>
+                  <span v-else>Reject</span>
+                </button>
+              </div>
+            </li>
+              <li v-if="!list.length" class="list-group-item text-muted">No draft items</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+<!-- end approve model //-->
+
+<div class="modal fade" id="preferencesModal" tabindex="-1" aria-labelledby="preferencesModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="preferencesModalLabel">Preferences</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+        <div class="modal-body">
+          <div v-if="isLoadingPreferences" class="text-center">
+            <div class="spinner-border text-secondary" role="status"></div>
+            <p>Loading preferences...</p>
+           </div>
+          <div v-else>
+            <p>Select which projects and instruments to show:</p>
+            <div class="mb-3">
+              <label class="form-label">Visible Projects</label>
+              <select id="projectsSelect" multiple></select>
+            </div>
+
+          <div class="mb-3">
+            <label class="form-label">Visible Instruments</label>
+            <select id="instrumentsSelect" multiple></select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Visible Departments</label>
+            <select id="departmentsSelect" multiple></select>
+          </div>
+
+        <div class="modal-footer">
+          <button @click="savePreferences" class="btn btn-primary">Save</button>
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+        <div v-if="isSavingPreferences" class="text-center w-100 mb-2">
+          <div class="spinner-border text-primary" role="status"></div>
+        </div>
+        <div v-if="preferencesSaved" class="text-success text-center w-100">
+          Preferences saved!
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+          </div> <!-- END row -->
+        </div> <!-- END v-else -->
+      </div> <!-- END modal-body -->
+    </div> <!-- END modal-content -->
+  </div> <!-- END modal-dialog -->
+</div> <!-- END modal -->
+</div> <!-- END APP /-->
+
+<!-- CATEGORIES //-->
+<!-- Bootstrap Modal for Categories -->
+<div class="modal fade" id="modalCard" tabindex="-1" aria-labelledby="modalCardLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalCardLabel">Categories and Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="accordion" id="categoriesAccordion">
+
+          <!-- Category 1: Product Training -->
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading1">
+              <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapse1" aria-expanded="true" aria-controls="collapse1">
+                Product Training
+              </button>
+            </h2>
+            <div id="collapse1" class="accordion-collapse collapse show" aria-labelledby="heading1" data-bs-parent="#categoriesAccordion">
+              <div class="accordion-body">
+                <p>Training creation & revision for on-market products, e.g.:</p>
+                <ul>
+                  <li>Training - Concept creation and revision: Documentation / RDLS (CTS) / Training Materials / E-content / Textbook / Agenda / Learning Path</li>
+                </ul>
+                <p>Training preparation & execution for on-market products:</p>
+                <ul>
+                  <li>Service Training - Rotkreuz</li>
+                  <li>Service Training - External (incl. Travel and expenses declaration)</li>
+                  <li>Application Training - Rotkreuz</li>
+                  <li>Application Training - External (incl. Travel and expenses declaration)</li>
+                  <li>Application Training - Customer Site (incl. Travel and expenses declaration)</li>
+                  <li>Webex or Remote Training</li>
+                  <li>Preparation of the Training Rooms prior Training</li>
+                  <li>Trainer certification/know how transfer (incl. Travel and expenses declaration)</li>
+                  <li>Main Trainer Role</li>
+                  <li>Co-Trainer Role</li>
+                  <li>Meeting/Emails... with Trainer-to-be</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 2: Support -->
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading2">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse2" aria-expanded="false" aria-controls="collapse2">
+                Support
+              </button>
+            </h2>
+            <div id="collapse2" class="accordion-collapse collapse" aria-labelledby="heading2" data-bs-parent="#categoriesAccordion">
+              <div class="accordion-body">
+                <p>All activities related to SW and HW support:</p>
+                <ul>
+                  <li>Support office-based (PSD/Remote) for on-market products, e.g.:</li>
+                  <ul>
+                    <li>GCS Hotline / Aurora</li>
+                    <li>Support Requests from Marketing</li>
+                    <li>Support Requests from Affiliates</li>
+                    <li>Questionnaires</li>
+                    <li>Customer Projects (eg. SRL, SISU, ....)</li>
+                  </ul>
+                  <li>Support on-site (incl. travel) for on-market products, e.g.:</li>
+                  <ul>
+                    <li>GCS Support - On-Site Installation Support</li>
+                    <li>GCS Support - On-Site Support (w/o Installation)</li>
+                    <li>Travel time for On-Site Support</li>
+                    <li>Remote support of an installation</li>
+                    <li>Customer Projects on-site (eg. SRL, SISU, ....)</li>
+                  </ul>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 3: Spare Parts -->
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading3">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse3" aria-expanded="false" aria-controls="collapse3">
+                Spare Parts
+              </button>
+            </h2>
+            <div id="collapse3" class="accordion-collapse collapse" aria-labelledby="heading3" data-bs-parent="#categoriesAccordion">
+              <div class="accordion-body">
+                <p>All activities related to spare parts</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 4: Documentation -->
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading4">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse4" aria-expanded="false" aria-controls="collapse4">
+                Documentation
+              </button>
+            </h2>
+            <div id="collapse4" class="accordion-collapse collapse" aria-labelledby="heading4" data-bs-parent="#categoriesAccordion">
+              <div class="accordion-body">
+                <p>All activities related to the creation of User Guides and Service Manuals:</p>
+                <ul>
+                  <li>Service Documentation for on-market products, e.g.:</li>
+                  <ul>
+                    <li>iSDoc</li>
+                    <li>Installation Manual (HW, SW)</li>
+                    <li>Support Documentation or Notification</li>
+                    <li>KIL</li>
+                    <li>IQOQ</li>
+                    <li>Google+ posts (Service/Application)</li>
+                    <li>Creation/Approval and Review of Service Documentation</li>
+                    <li>SMILE</li>
+                    <li>RDK (1KM+)</li>
+                  </ul>
+                  <li>User Documentation for on-market products, e.g.:</li>
+                  <ul>
+                    <li>Operators Manual/User Guides</li>
+                    <li>Host Interface Manual</li>
+                    <li>User Assistance</li>
+                    <li>Other Customer facing documentation</li>
+                    <li>PI/IFU Review</li>
+                    <li>Marketing Notification review</li>
+                  </ul>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 5: Service Improvement -->
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading5">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse5" aria-expanded="false" aria-controls="collapse5">
+                Service Improvement
+              </button>
+            </h2>
+            <div id="collapse5" class="accordion-collapse collapse" aria-labelledby="heading5" data-bs-parent="#categoriesAccordion">
+              <div class="accordion-body">
+                <p>All activities related to product care:</p>
+                <ul>
+                  <li>Product Care tasks/meetings</li>
+                  <li>Product Care / On-Market</li>
+                  <li>PC Initiatives</li>
+                  <li>PCQT prep., PCQT attendance</li>
+                  <li>Working on CAPA Tasks</li>
+                  <li>PTM Attendance and Preparation</li>
+                  <li>PPM</li>
+                  <li>TPM Network (including Travel)</li>
+                  <li>Product related Team Meeting</li>
+                  <li>any PC Meeting</li>
+                  <li>TPM Reports, GCS Reporting</li>
+                  <li>Post-launch Reviews</li>
+                  <li>Requirements Discussions</li>
+                  <li>Meeting with Project functions (Remote, Usability, Dev…)</li>
+                  <li>Project Workshops (Planning)</li>
+                  <li>"Product care projects with no new product features/product enhancements (eg cost optimized pippeting head)"</li>
+                  <li>Planning for Product care resources by TPM or TM</li>
+                  <li>VDI</li>
+                  <li>TPM Task</li>
+                  <li>Service and Launch Preparation, Installation preparation</li>
+                  <li>Tellme activities for 6800</li>
+                  <li>DCR (Design Change Request)</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 6: Overhead -->
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading6">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse6" aria-expanded="false" aria-controls="collapse6">
+                Overhead
+              </button>
+            </h2>
+            <div id="collapse6" class="accordion-collapse collapse" aria-labelledby="heading6" data-bs-parent="#categoriesAccordion">
+              <div class="accordion-body">
+                <p>All actions related to internal department topics that are not related to a specific product, project, or initiative, or personal development:</p>
+                <ul>
+                  <li>Others-Own Education (non-product related)</li>
+                  <li>Personal Development</li>
+                  <li>Internal Trainings (non-product related)</li>
+                  <li>SOP, QAP trainings</li>
+                  <li>Quality related topics</li>
+                  <li>Development workshop</li>
+                  <li>Others-General Tasks (non-product related)</li>
+                  <li>"Non product/project related meetings (Team meeting)"</li>
+                  <li>General admin tasks (eg time tracking)</li>
+                  <li>1:1 Employee: TM/Leader</li>
+                  <li>MBO planning/performance review</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 7: Initiatives -->
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading7">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse7" aria-expanded="false" aria-controls="collapse7">
+                Initiatives
+              </button>
+            </h2>
+            <div id="collapse7" class="accordion-collapse collapse" aria-labelledby="heading7" data-bs-parent="#categoriesAccordion">
+              <div class="accordion-body">
+                <p>Small projects:</p>
+                <ul>
+                  <li>Mentoring Project</li>
+                  <li>Strategic Workstreams / FAs</li>
+                  <li>Process Ownership (COP 2.0…)</li>
+                  <li>SHE activities</li>
+                  <li>Equipment Manager</li>
+                  <li>Key-User (testing pilot tools etc.)</li>
+                  <li>Lab Responsibility</li>
+                  <li>Regional Planning Meetings</li>
+                  <li>Training Forecast community</li>
+                  <li>Master Trainer Community</li>
+                  <li>Navify Integrator</li>
+                  <li>Software Portal & Distribution</li>
+                  <li>Tool Development (Time Tracking Tool etc.)</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 8: Project (Product related) -->
+          <div class="accordion-item">
+            <h2 class="accordion-header" id="heading8">
+              <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse8" aria-expanded="false" aria-controls="collapse8">
+                Project (Product related)
+              </button>
+            </h2>
+            <div id="collapse8" class="accordion-collapse collapse" aria-labelledby="heading8" data-bs-parent="#categoriesAccordion">
+              <div class="accordion-body">
+                <p>Project related to a product that has:</p>
+                <ul>
+                  <li>A start date</li>
+                  <li>A launch date</li>
+                  <li>An appointed PL</li>
+                </ul>
+                <p>New Instrument Projects: Prime, Sting, dPCR,...</p>
+                <p>New Assay projects</p>
+                <p>Product Project with new product features (eg. 68/88 SW 2.0)</p>
+                <p>Project knowledge transfer</p>
+                <p>Requirements Discussions</p>
+                <p>Design Reviews (Documents)</p>
+                <p>Meeting with Project functions (Remote, Usability, Dev…)</p>
+                <p>Project Workshops (Planning)</p>
+                <p>Planning for Projects resources by PL or TM</p>
+                <p>Clinical Trial support before Launch</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+<!-- Categories and faqs Button -->
+<div class="mt-3 text-center">
+  <button class="btn btn-sm btn-outline-info me-2" data-bs-toggle="modal" data-bs-target="#modalCard">
+    <i class="bi bi-info-circle"></i> Categories
+  </button>
+  <a class="btn btn-sm btn-outline-secondary" href="https://docs.google.com/document/d/1_kL-qV1jBIpkgeniNdL8MbodHOUwuryVRo3u-0chHoA/edit?tab=t.0#heading=h.74r5qj837abm" target="_blank">
+    <i class="bi bi-question-circle"></i> FAQs
+  </a>
+    <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#feedbackModal">
+    <i class="bi bi-chat-dots"></i> Feedback
+  </button>
+</div>
+<!-- END CATEGORIES //-->
+
+<script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+  function openModal(id) {
+    document.getElementById(id).classList.add("is-active");
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove("is-active");
+  }
+
+  // Close button
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".modal-close, .modal-background").forEach(($el) => {
+      $el.addEventListener("click", () => {
+        $el.closest(".modal").classList.remove("is-active");
+      });
+    });
+  });
+
+  function toggleContent(index) {
+    const content = document.getElementById(`category${index}`);
+    if (content.style.display === "none" || !content.style.display) {
+      content.style.display = "block";
+    } else {
+      content.style.display = "none";
+    }
+  }
+</script>
+
+ <script>
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+      isLoadingApprove: false,
+      feedbackList: [],
+      feedbackFilter: '',
+      isLoadingFeedback: false,
+      isSavingFeedback: false,
+      feedbackText: '',
+      feedbackSubmitted: false,
+      currentPage: 1,
+      itemsPerPage: 15,
+      isLoadingApp: true,
+      dashboardProgress: 0,
+      deletingEntryId: null,
+      isSimulatingProgress: false,
+      maxEndDate: '',
+      isLoadingPreferences: false,
+      preferencesSaved: false,
+      isSavingPreferences: false,
+      isSavingEdit: false,
+      isAdmin:false,
+      usePersonalized: true,
+      rejectingItem: null,
+      isLoadingApprove: false,
+draftItems: {
+  categories: [],
+  instruments: [],
+  projects: []
+},
+ summary: {
+      monthHours: 0,
+      weekHours: 0
+    },
+      approvingItem: null,
+      approveSuccessMessage: '',
+      isSubmitting: false,
+      submitSuccess: false,
+      dashboardEmails: [],
+      isLoadingEntries: false,
+      showingEntries: false,
+      latestEntries: [],
+      historyFilters: {
+        startDate: '',
+        endDate: ''
+      },
+      historyPage: 1,
+      historyPageCount: 1,
+      historyTotal: 0,
+      historyPageSize: 25,
+      isLoadingDashboard: false,
+      dashboardEntries: [],
+      filteredDashboardEntries: [],
+      dashboardFilters: {
+        startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+        endDate: new Date().toISOString().split('T')[0],
+        department: [],
+        category: [],
+        project: [],
+        email: [],
+        instrument: []
+      },
+      chartInstance: null,
+      scriptUrl: 'https://script.google.com/a/macros/roche.com/s/AKfycbzmk9Be_6wY46DYcafktRW6on0UeO86I72fWd7XMvuROLNMBppo1pZPNkEy-YshjFAt/exec',
+      email: '',
+      form: {
+        startDate: '',
+        endDate: '',
+        department: '',
+        category: '',
+        project: '',
+        instrument: '',
+        hours: ''
+      },
+      departments: [],
+      categories: [],
+      projects: [],
+      instruments: [],
+      userSettings: {
+        visibleProjects: [],
+        visibleInstruments: [],
+        visibleDepartments: []
+      },
+      editForm: {
+        rowIndex: null,
+        startDate: '',
+        endDate: '',
+        department: '',
+        category: '',
+        project: '',
+        instrument: '',
+        hours: ''
+      }
+    };
+  },
+  computed: {
+
+    paginatedDashboardEntries() {
+  const start = (this.currentPage - 1) * this.itemsPerPage;
+  return this.filteredDashboardEntries.slice(start, start + this.itemsPerPage);
+},
+totalPages() {
+  return Math.ceil(this.filteredDashboardEntries.length / this.itemsPerPage);
+},
+    totalDashboardHours() {
+  return this.filteredDashboardEntries.reduce((sum, e) => sum + parseFloat(e.hours || 0), 0);
+},
+    showProjectDropdown() {
+      const cat = this.categories.find(c => c.name === this.form.category);
+      return cat?.projectsVisible || false;
+    },
+    showInstrumentDropdown() {
+      const cat = this.categories.find(c => c.name === this.form.category);
+      return cat?.instrumentsVisible || false;
+    },
+    filteredDepartments() {
+      if (!this.usePersonalized || !this.userSettings.visibleDepartments.length) return this.departments;
+      return this.departments.filter(d => this.userSettings.visibleDepartments.includes(d));
+    },
+      /*maxEndDate() {
+    if (!this.form.startDate) return '';
+    const start = new Date(this.form.startDate);
+    const lastDay = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    return lastDay.toISOString().split('T')[0];
+  },*/
+    filteredProjects() {
+      if (!this.usePersonalized || !this.userSettings.visibleProjects.length) return this.projects;
+      return this.projects.filter(p => this.userSettings.visibleProjects.includes(p));
+    },
+ filteredFeedbackList() {
+    if (this.feedbackFilter === 'all') return this.feedbackList;
+    return this.feedbackList.filter(item => (item.status || '') === this.feedbackFilter);
+  },
+
+    filteredInstruments() {
+      if (!this.usePersonalized || !this.userSettings.visibleInstruments.length) return this.instruments;
+      return this.instruments.filter(i => this.userSettings.visibleInstruments.includes(i));
+    }
+  },
+  methods: {
+sortKey: '',
+sortDirection: 1,
+
+sortDashboard(key) {
+  if (this.sortKey === key) {
+    this.sortDirection *= -1;
+  } else {
+    this.sortKey = key;
+    this.sortDirection = 1;
+  }
+
+  this.filteredDashboardEntries.sort((a, b) => {
+    let valA = a[key] ?? '';
+    let valB = b[key] ?? '';
+    if (typeof valA === 'string') valA = valA.toLowerCase();
+    if (typeof valB === 'string') valB = valB.toLowerCase();
+
+    return valA > valB ? this.sortDirection : valA < valB ? -this.sortDirection : 0;
+  });
+},
+
+resetFeedbackModal() {
+  this.feedbackText = '';
+  this.feedbackSubmitted = false;
+},
+
+setFeedbackStatus(item, status) {
+  item.status = status;
+  this.updateFeedbackStatus(item);
+},
+
+updateFeedbackStatus(item) {
+  const payload = {
+    id: item.id,
+    status: item.status
+  };
+  google.script.run.updateFeedbackStatus(payload);
+},
+
+loadFeedbackList() {
+  this.isLoadingFeedback = true;
+google.script.run
+  .withSuccessHandler(data => {
+    if (!Array.isArray(data)) {
+      console.error("Feedback data not loaded correctly:", data);
+      this.isLoadingFeedback = false;
+      return;
+    }
+
+    this.feedbackList = data.map(entry => ({
+      id: entry.id || entry[0],  // fallback to raw index if needed
+      status: entry.status || '',
+      date: new Date(entry.date).toLocaleString(),
+      originalDate: entry.date,
+      email: entry.email,
+      message: entry.feedback
+    }));
+    this.isLoadingFeedback = false;
+  })
+  .withFailureHandler(err => {
+    console.error("Error loading feedback:", err);
+    this.isLoadingFeedback = false;
+  })
+  .getFeedbackEntries(); // this must come *after* handlers
+},
+
+submitFeedback() {
+  this.isSavingFeedback = true;
+  const payload = {
+    date: new Date().toISOString(),
+    email: this.email,
+    message: this.feedbackText.trim()
+  };
+
+  google.script.run.withSuccessHandler(() => {
+    this.isSavingFeedback = false;
+    this.feedbackSubmitted = true;
+    setTimeout(() => {
+      this.feedbackText = '';
+      this.feedbackSubmitted = false;
+      const modal = bootstrap.Modal.getInstance(document.getElementById('feedbackModal'));
+      modal.hide();
+    }, 2000);
+  }).submitFeedbackToSheet(payload);
+},
+
+nextPage() {
+  if (this.currentPage < this.totalPages) this.currentPage++;
+},
+prevPage() {
+  if (this.currentPage > 1) this.currentPage--;
+},
+openDashboardLink() {
+  const url = this.isAdmin
+    ? 'https://lookerstudio.google.com/reporting/2a625787-0b88-4fff-820c-b64206dc022d/page/vv1TD'
+    : 'https://lookerstudio.google.com/reporting/ca779240-3f22-444c-bc3b-0bc05e371eec/page/vv1TD';
+  window.open(url, '_blank');
+},
+
+loadApproveModal() {
+  this.isLoadingApprove = true;
+  google.script.run.withSuccessHandler(data => {
+    this.draftItems = data;
+    this.isLoadingApprove = false;
+  }).getDraftItems();
+},
+deleteEntry(entry) {
+  if (!confirm(`Are you sure you want to delete the entry?`)) return;
+
+  this.deletingEntryId = entry.rowIndex;
+  google.script.run.withSuccessHandler(() => {
+    this.deletingEntryId = null;
+    this.loadEntryHistory(this.historyPage);
+  }).withFailureHandler(() => {
+    alert('Failed to delete entry. Please refresh and try again.');
+    this.deletingEntryId = null;
+  }).deleteTimeEntry(entry.rowIndex);
+},
+formatDate(date) {
+  if (!date) return '';
+  const d = new Date(date);
+  return d.toISOString().split('T')[0];
+},
+approveItem(type, itemName) {
+  if (!confirm(`Approve "${itemName}"?`)) return;
+  this.approvingItem = itemName;
+  google.script.run.withSuccessHandler(() => {
+    this.draftItems[type] = this.draftItems[type].filter(i => i.name !== itemName);
+    this.approveSuccessMessage = `${itemName} successfully approved`;
+    this.approvingItem = '';
+  }).approveItem(type, itemName);
+},
+updateMaxEndDate() {
+  if (!this.form.startDate) return;
+
+  const startDate = new Date(this.form.startDate);
+  const year = startDate.getFullYear();
+  const month = startDate.getMonth() + 1; // Month is 0-based
+  const lastDay = new Date(year, month, 0).getDate(); // last day of the month
+  this.maxEndDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+},
+
+getNameFromEmail(email) {
+  if (!email) return '';
+  const username = email.split('@')[0];
+  return username.replace(/[._]/g, ' ');
+},
+rejectItem(type, itemName) {
+  if (!confirm(`Reject "${itemName}"?`)) return;
+  this.rejectingItem = itemName;
+
+  const isRemoval = this.draftItems[type].find(i => i.name === itemName)?.type === 'removal';
+
+  const handler = () => {
+    this.draftItems[type] = this.draftItems[type].filter(i => i.name !== itemName);
+    this.approveSuccessMessage = `"${itemName}" suggestion rejected.`;
+    this.rejectingItem = '';
+  };
+
+  if (isRemoval) {
+    // Only delete from draft sheet
+    google.script.run.withSuccessHandler(handler).deleteDraftItem(type, itemName);
+  } else {
+    // Remove from both (if you still want that for additions)
+    google.script.run.withSuccessHandler(handler).deleteItem(type, itemName);
+  }
+},
+
+
+  // START initPreferencesDropdowns();
+  initPreferencesDropdowns() 
+  {
+    const projectChoices = new Choices('#projectsSelect', { removeItemButton: true });
+    const instrumentChoices = new Choices('#instrumentsSelect', { removeItemButton: true });
+    const departmentChoices = new Choices('#departmentsSelect', { removeItemButton: true });
+      projectChoices.setChoices(this.projects.map(p => ({
+        value: p,
+        label: p,
+        selected: this.userSettings.visibleProjects.includes(p)
+         })), 'value', 'label', true);
+      instrumentChoices.setChoices(this.instruments.map(i => ({
+        value: i,
+        label: i,
+        selected: this.userSettings.visibleInstruments.includes(i)
+          })), 'value', 'label', true);
+
+      departmentChoices.setChoices(this.departments.map(d => ({
+        value: d,
+        label: d,
+        selected: this.userSettings.visibleDepartments.includes(d)
+          })), 'value', 'label', true);
+
+      document.querySelector('#departmentsSelect').addEventListener('change', e => {
+        this.userSettings.visibleDepartments = [...e.target.selectedOptions].map(opt => opt.value);
+      });
+      document.querySelector('#projectsSelect').addEventListener('change', e => {
+        this.userSettings.visibleProjects = [...e.target.selectedOptions].map(opt => opt.value);
+      });
+      document.querySelector('#instrumentsSelect').addEventListener('change', e => {
+        this.userSettings.visibleInstruments = [...e.target.selectedOptions].map(opt => opt.value);
+      });
+      this.isLoadingPreferences = false;
+  },  // END initPreferencesDropdowns();
+
+  savePreferences() 
+  {
+    this.isSavingPreferences = true;
+    this.preferencesSaved = false;
+
+    const settings = 
+    {
+      email: this.email,
+      visibleProjects: this.userSettings.visibleProjects,
+      visibleInstruments: this.userSettings.visibleInstruments,
+      visibleDepartments: this.userSettings.visibleDepartments
+    };
+    google.script.run.withSuccessHandler(() => {
+      this.isSavingPreferences = false;
+      this.preferencesSaved = true;
+      setTimeout(() => this.preferencesSaved = false, 3000);
+      document.querySelector('#preferencesModal .btn-close').click();  // Close the modal
+    })
+    .saveUserSettingsToSheet(settings);
+  },
+
+  submitForm() {
+    this.isSubmitting = true;
+    this.submitSuccess = false;
+    const entry = { ...this.form, email: this.email };
+      google.script.run.withSuccessHandler(() => 
+      {
+          this.isSubmitting = false;
+          this.submitSuccess = true;
+          this.resetForm();
+          setTimeout(() => this.submitSuccess = false, 3000);
+        })
+        .withFailureHandler(error => {
+          this.isSubmitting = false;
+          console.error(error);
+          alert('Something went wrong.');
+        })
+        .submitTimeEntryToSheet(entry);
+    },
+
+
+  resetForm() {
+    const keep = {
+      startDate: this.form.startDate,
+      endDate: this.form.endDate,
+      department: this.form.department,
+      category: this.form.category,
+    };
+      Object.keys(this.form).forEach(k => this.form[k] = '');
+      this.form.startDate = keep.startDate;
+      this.form.endDate = keep.endDate;
+      this.form.department = keep.department;
+      this.form.category = keep.category;
+    },
+    setUserSettings(settings) 
+    {
+      this.userSettings = settings;
+
+      if (this.userSettings.visibleDepartments.length === 1) {
+  this.form.department = this.userSettings.visibleDepartments[0];
+}
+if (this.userSettings.visibleProjects.length === 1) {
+  this.form.project = this.userSettings.visibleProjects[0];
+}
+if (this.userSettings.visibleInstruments.length === 1) {
+  this.form.instrument = this.userSettings.visibleInstruments[0];
+}
+    },
+
+initDateRangePicker() {
+  this.$nextTick(() => {
+    const el = document.getElementById('dateRangePicker');
+    if (!el) {
+      console.warn('dateRangePicker element not found');
+      return;
+    }
+
+    if (this.litepicker) {
+      this.litepicker.destroy();
+    }
+
+    this.litepicker = new Litepicker({
+      element: el,
+      singleMode: false,
+      format: 'YYYY-MM-DD',
+      startDate: this.dashboardFilters.startDate,
+      endDate: this.dashboardFilters.endDate,
+      setup: (picker) => {
+        picker.on('selected', (start, end) => {
+          this.dashboardFilters.startDate = start.format('YYYY-MM-DD');
+          this.dashboardFilters.endDate = end.format('YYYY-MM-DD');
+        });
+      }
+    });
+  });
+},
+
+showEntries() {
+  this.showingEntries = true;
+  this.historyPage = 1;
+  this.loadEntryHistory(1);
+},
+
+applyHistoryFilters() {
+  this.historyPage = 1;
+  this.loadEntryHistory(1);
+},
+
+clearHistoryFilters() {
+  this.historyFilters.startDate = '';
+  this.historyFilters.endDate = '';
+  this.applyHistoryFilters();
+},
+
+loadEntryHistory(page) {
+  if (page < 1 || page > this.historyPageCount && this.historyPageCount > 0) return;
+  this.isLoadingEntries = true;
+  google.script.run.withSuccessHandler(result => {
+    this.latestEntries = Array.isArray(result.entries) ? result.entries : [];
+    this.historyPage = result.page || 1;
+    this.historyPageCount = result.pageCount || 1;
+    this.historyTotal = result.total || 0;
+    this.isLoadingEntries = false;
+  }).withFailureHandler(error => {
+    console.error('Unable to load entry history:', error);
+    this.latestEntries = [];
+    this.isLoadingEntries = false;
+    alert('Unable to load your entry history. Please check the dates and try again.');
+  }).getTimeEntriesForCurrentUser({
+    startDate: this.historyFilters.startDate,
+    endDate: this.historyFilters.endDate,
+    page: page || 1,
+    pageSize: this.historyPageSize
+  });
+},
+
+  editEntry(entry) {
+    this.editForm = { ...entry };
+    this.$nextTick(() => {
+    const modalEl = document.getElementById('editModal');
+    if (modalEl) 
+    {
+      const modal = new bootstrap.Modal(modalEl);
+      modal.show();
+    }
+  });
+},
+
+  saveEditedEntry() {
+    if (this.editForm.hours < 0) {
+    alert('Hours cannot be negative.');
+    return;
+  }
+      this.isSavingEdit = true;
+      const entryToSave = { ...this.editForm };
+      google.script.run.withSuccessHandler(() => {
+        const modal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
+        modal.hide();
+        this.loadEntryHistory(this.historyPage);
+        this.isSavingEdit = false;
+      }).withFailureHandler(error => {
+        this.isSavingEdit = false;
+        alert(error.message || 'Unable to update this entry.');
+      }).updateTimeEntry(entryToSave.rowIndex, entryToSave);
+    },
+
+
+loadDashboardData() {
+  this.isLoadingDashboard = true;
+
+  google.script.run.withSuccessHandler(data => {
+    this.dashboardEntries = data.map(entry => ({
+      ...entry,
+      startDate: entry.startDate ? new Date(entry.startDate).toISOString().slice(0, 10) : '',
+      endDate: entry.endDate ? new Date(entry.endDate).toISOString().slice(0, 10) : ''
+    }));
+
+    this.filteredDashboardEntries = this.dashboardEntries;
+    this.dashboardEmails = [...new Set(this.dashboardEntries.map(e => e.email))].sort();
+
+    this.$nextTick(() => {
+      const fields = [
+        { id: 'categorySelect', key: 'category', source: this.categories.map(c => c.name) },
+        { id: 'departmentSelect', key: 'department', source: this.departments },
+        { id: 'projectSelect', key: 'project', source: this.projects },
+        { id: 'instrumentSelect', key: 'instrument', source: this.instruments },
+        { id: 'emailSelect', key: 'email', source: this.dashboardEmails }
+      ];
+
+      this.initDashboardFiltersChoices();
+
+      this.initDateRangePicker();
+      this.applyDashboardFilters();
+    });
+
+    this.isLoadingDashboard = false;
+  }).getAllEntriesForDashboard();
+},
+
+applyDashboardFilters() {
+  const entries = this.dashboardEntries.filter(e => {
+    const entryStart = new Date(e.startDate).toISOString().split('T')[0];
+    const entryEnd = new Date(e.endDate).toISOString().split('T')[0];
+
+    const matchStart = !this.dashboardFilters.startDate || entryStart >= this.dashboardFilters.startDate;
+    const matchEnd = !this.dashboardFilters.endDate || entryEnd <= this.dashboardFilters.endDate;
+
+    const matchDept = !this.dashboardFilters.department.length || this.dashboardFilters.department.includes(e.department);
+    const matchCat = !this.dashboardFilters.category.length || this.dashboardFilters.category.includes(e.category);
+    const matchProj = !this.dashboardFilters.project.length || this.dashboardFilters.project.includes(e.project);
+    const matchInstr = !this.dashboardFilters.instrument.length || this.dashboardFilters.instrument.includes(e.instrument);
+    const matchEmail = !this.dashboardFilters.email.length || this.dashboardFilters.email.includes(e.email);
+
+    return matchStart && matchEnd && matchDept && matchCat && matchProj && matchInstr && matchEmail;
+  });
+
+  // Group & aggregate
+  const grouped = {};
+  entries.forEach(e => {
+    const key = `${e.department}|${e.category}|${e.instrument}|${e.email}`;
+    if (!grouped[key]) {
+      grouped[key] = {
+        department: e.department,
+        category: e.category,
+        instrument: e.instrument,
+        email: e.email,
+        project: e.project,
+        hours: parseFloat(e.hours || 0)
+      };
+    } else {
+      grouped[key].hours += parseFloat(e.hours || 0);
+    }
+  });
+
+
+}
+},
+   watch: {
+    dashboardFilters: {
+      deep: true,
+      handler() {
+        if (!this.isAdmin){
+          this.dashboardFilters.email = this.email;
+        }
+        this.applyDashboardFilters();
+      }
+    },
+     'form.startDate': function(newVal) {
+    this.updateMaxEndDate();
+  }
+   },
+  mounted() {
+
+const today = new Date().toISOString().split('T')[0];
+this.form.startDate = today;
+this.form.endDate = today;
+
+document.getElementById('approveModal').addEventListener('shown.bs.modal', () => {
+  this.loadApproveModal();
+});
+document.getElementById('editModal').addEventListener('hidden.bs.modal', () => {
+  if (this.showingEntries) this.loadEntryHistory(this.historyPage);
+});
+document.getElementById('feedbackListModal').addEventListener('shown.bs.modal', () => {
+  this.loadFeedbackList();
+});
+
+const runServer = (method, ...args) => new Promise((resolve, reject) => {
+  const runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+  runner[method](...args);
+});
+
+Promise.all([
+  runServer('getDepartmentsFromSheet'),
+  runServer('getCategoriesFromSheet'),
+  runServer('getProjectsFromSheet'),
+  runServer('getInstrumentsFromSheet'),
+  runServer('getUserEmail'),
+  runServer('isCurrentUserAdmin'),
+  runServer('getLoggedHoursSummary')
+]).then(([departments, categories, projects, instruments, email, isAdmin, summary]) => {
+  this.departments = departments;
+  this.categories = categories;
+  this.projects = projects;
+  this.instruments = instruments;
+  this.email = email;
+  this.isAdmin = isAdmin;
+  this.summary = summary;
+  if (!this.isAdmin) this.dashboardFilters.email = this.email;
+  return runServer('getUserSettingsFromSheet');
+}).then(settings => {
+  this.setUserSettings(settings);
+  this.isLoadingPreferences = true;
+  this.initPreferencesDropdowns();
+  this.isLoadingApp = false;
+}).catch(error => {
+  console.error('Unable to initialize the time tracker:', error);
+  this.isLoadingApp = false;
+  alert('Unable to load the time tracker. Please refresh the page or contact an administrator.');
+});
+
+  }
+}).mount('#app');
+</script>
+
+</body>
+</html>

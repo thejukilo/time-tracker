@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "GCS Mol Labs Time Tracker",
+  "description": "Track time against a task and save it directly to the Time Tracker.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Time Tracker",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ]
+}

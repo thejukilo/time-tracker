@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin - Time Tracker</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body class="bg-light">
+  <div id="adminApp" class="container py-5">
+    <div class="card mx-auto shadow-sm" style="max-width: 600px;">
+      <div class="card-body">
+
+        <div class="text-center mb-3">
+          <h5 class="fw-bold">Suggest a New Item</h5>
+          <p class="text-muted small">
+            With this form you can suggest a new <strong>Category</strong>, <strong>Instrument</strong> or <strong>Project</strong>. 
+            It will be added as <strong>Draft</strong> and added to the list, once approved.
+          </p>
+        </div>
+
+        <div class="d-flex flex-column gap-3">
+          <input class="form-control" placeholder="Enter item name" v-model="newItem">
+
+          <div>
+            <label class="form-label me-3">Select Type:</label>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" id="typeCategory" value="categories" v-model="selectedList">
+              <label class="form-check-label" for="typeCategory">Category</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" id="typeInstrument" value="instruments" v-model="selectedList">
+              <label class="form-check-label" for="typeInstrument">Instrument</label>
+            </div>
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="radio" id="typeProject" value="projects" v-model="selectedList">
+              <label class="form-check-label" for="typeProject">Project</label>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" @click="confirmAddItem" :disabled="!newItem || !selectedList">Save</button>
+
+          <div v-if="isSaving" class="text-center text-primary small">
+            <div class="spinner-border spinner-border-sm"></div> Saving...
+          </div>
+
+          <div v-if="saveSuccess" class="alert alert-success mt-2 p-2 text-center">
+            Item added successfully!
+          </div>
+        </div>
+
+        <hr class="my-4">
+       <h5 class="mt-4">Suggest Removal</h5>
+
+<div>
+  <label>Project to remove:</label>
+  <select id="removeProjectSelect" class="form-select mb-2"></select>
+  <button class="btn btn-sm btn-outline-danger" 
+          @click="suggestRemove('projects')" 
+          :disabled="removalLoading === 'projects'">
+    <span v-if="removalLoading === 'projects'" 
+          class="spinner-border spinner-border-sm me-1" role="status"></span>
+    Suggest Remove
+  </button>
+  <div v-if="removalMessage.projects" class="text-success mt-2 small">
+    {{ removalMessage.projects }}
+  </div>
+</div>
+
+<div class="mt-3">
+  <label>Instrument to remove:</label>
+  <select id="removeInstrumentSelect" class="form-select mb-2"></select>
+  <button class="btn btn-sm btn-outline-danger" 
+          @click="suggestRemove('instruments')" 
+          :disabled="removalLoading === 'instruments'">
+    <span v-if="removalLoading === 'instruments'" 
+          class="spinner-border spinner-border-sm me-1" role="status"></span>
+    Suggest Remove
+  </button>
+  <div v-if="removalMessage.instruments" class="text-success mt-2 small">
+    {{ removalMessage.instruments }}
+  </div>
+</div>
+
+      </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal fade" id="confirmModal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Please Confirm</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            Are you sure you want to add <strong>{{ newItem }}</strong> to <strong>{{ selectedList }}</strong>?
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Oops, no</button>
+            <button class="btn btn-primary" @click="addItem" data-bs-dismiss="modal">Yes</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          selectedList: '',
+          newItem: '',
+          isSaving: false,
+          saveSuccess: false,
+          removalLoading: '',
+          removalMessage: {
+          projects: '',
+          instruments: ''
+          }
+        };
+      },
+      methods: {
+        confirmAddItem() {
+          const modalEl = document.getElementById('confirmModal');
+          if (modalEl) {
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+          }
+        },
+        addItem() {
+          if (!this.newItem.trim() || !this.selectedList) return;
+          this.isSaving = true;
+          google.script.run.withSuccessHandler(() => {
+            this.isSaving = false;
+            this.saveSuccess = true;
+            this.newItem = '';
+            this.selectedList = '';
+            setTimeout(() => this.saveSuccess = false, 3000);
+          }).addItem(this.selectedList, this.newItem.trim());
+        },
+suggestRemove(type) {
+  const selectId = type === 'projects' ? 'removeProjectSelect' : 'removeInstrumentSelect';
+  const item = document.getElementById(selectId).value;
+  if (!item) return alert('Please select an item to remove.');
+
+  this.removalLoading = type;
+  google.script.run.withSuccessHandler(() => {
+    this.removalLoading = '';
+    this.removalMessage[type] = `"${item}" was submitted for removal`;
+    setTimeout(() => this.removalMessage[type] = '', 4000);
+  }).addItem(type, item, true);
+}
+      },
+      mounted() {
+        google.script.run.withSuccessHandler(projects => {
+          const select = document.getElementById('removeProjectSelect');
+          projects.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            select.appendChild(opt);
+          });
+        }).getProjectsFromSheet();
+
+        google.script.run.withSuccessHandler(instr => {
+          const select = document.getElementById('removeInstrumentSelect');
+          instr.forEach(i => {
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = i;
+            select.appendChild(opt);
+          });
+        }).getInstrumentsFromSheet();
+      }
+    }).mount('#adminApp');
+  </script>
+</body>
+</html>
