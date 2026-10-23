@@ -1,6 +1,6 @@
 # GCS Mol Labs Time Tracker extension
 
-This is a Chrome Manifest V3 extension. It keeps the running timer in Chrome local storage, so closing the popup does not stop it.
+This is a Chrome Manifest V3 extension. It keeps the running timer and the synced dropdown lists in Chrome local storage, so closing the popup does not stop it and reopening it does not need a network request.
 
 ## One-time setup
 
@@ -12,9 +12,10 @@ This is a Chrome Manifest V3 extension. It keeps the running timer in Chrome loc
 
 ## Use
 
-1. Open the extension popup.
-2. Select department and category (and project/instrument when relevant), then start the timer.
-3. Stop the timer. Edit the calculated hours if required.
-4. Save. The entry is validated and stored through the same Apps Script function as the main application.
+1. Open the extension popup. On first use it syncs departments, categories, projects, and instruments; later opens use the local copy.
+2. Use **Sync now** when the available items need to be refreshed. The popup displays the last successful sync time.
+3. Select department and category (and project/instrument only when that category requires it), then start the timer.
+4. Stop the timer. Edit the calculated hours if required.
+5. Save. This is the only other point where the extension connects to Apps Script; the entry is validated and stored through the same function as the main application.
 
 Do not put a Supabase key in the extension.
