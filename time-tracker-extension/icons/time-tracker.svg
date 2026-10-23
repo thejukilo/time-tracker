@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Time Tracker</title>
+  <defs>
+    <linearGradient id="background" x1="18" y1="12" x2="110" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6d6ce8"/>
+      <stop offset="1" stop-color="#4f50c9"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="30" fill="url(#background)"/>
+  <circle cx="64" cy="64" r="32" fill="none" stroke="#fff" stroke-width="6"/>
+  <path d="M64 45v21l14 9" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="6"/>
+  <path d="M54 27h20" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="6"/>
+  <path d="M64 27v8" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="6"/>
+  <circle cx="64" cy="64" r="4" fill="#fff"/>
+</svg>
