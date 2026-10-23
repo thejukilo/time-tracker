@@ -8,6 +8,15 @@ function apiUrl(action) {
   return `${WEB_APP_URL}${joiner}api=${encodeURIComponent(action)}`;
 }
 function notice(message) { const box = el('notice'); box.textContent = message; box.hidden = !message; }
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try { return await fetch(url, { ...options, signal: controller.signal }); }
+  catch (error) {
+    if (error.name === 'AbortError') throw new Error('Connection timed out. Open the /exec URL in Chrome once, confirm Google access, then reload this extension.');
+    throw error;
+  } finally { clearTimeout(timeout); }
+}
 function dateKey(timestamp) { const date = new Date(timestamp); return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`; }
 function formatElapsed(milliseconds) { const seconds = Math.max(0, Math.floor(milliseconds / 1000)); const h = String(Math.floor(seconds / 3600)).padStart(2,'0'); const m = String(Math.floor((seconds % 3600) / 60)).padStart(2,'0'); const s = String(seconds % 60).padStart(2,'0'); return `${h}:${m}:${s}`; }
 function setOptions(select, items, placeholder) { select.innerHTML = `<option value="" disabled>${placeholder}</option>` + items.map(item => `<option value="${item.id}">${item.name}</option>`).join(''); }
@@ -20,7 +29,8 @@ async function getStoredTimer() { return new Promise(resolve => chrome.storage.l
 async function storeTimer(timer) { return new Promise(resolve => chrome.storage.local.set({ [TIMER_KEY]: timer }, resolve)); }
 async function clearTimer() { return new Promise(resolve => chrome.storage.local.remove(TIMER_KEY, resolve)); }
 async function loadBootstrap() {
-  const response = await fetch(apiUrl('timerBootstrap'), { credentials: 'include' });
+  el('identity').textContent = 'Connecting…';
+  const response = await fetchWithTimeout(apiUrl('timerBootstrap'), { credentials: 'include' });
   if (!response.ok) throw new Error(`The Time Tracker service returned ${response.status}.`);
   const raw = await response.text();
   let result;
@@ -86,6 +96,9 @@ async function initialise() {
     el('entryForm').addEventListener('submit', saveEntry);
     el('discard').addEventListener('click', async () => { await clearTimer(); state.timer = null; el('hours').value = ''; notice('Timer discarded.'); updateTimer(); });
     updateTimer();
-  } catch (error) { notice(error.message || 'Unable to connect. Confirm you are signed in and the web app URL is correct.'); }
+  } catch (error) {
+    el('identity').textContent = 'Connection failed';
+    notice(error.message || 'Unable to connect. Confirm you are signed in and the web app URL is correct.');
+  }
 }
 initialise();
