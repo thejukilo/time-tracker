@@ -63,7 +63,7 @@ function applyTask(task) {
 function updateTimer() {
   const running = state.timer?.startedAt;
   el('elapsed').textContent = running ? formatElapsed(Date.now() - state.timer.startedAt) : '00:00:00';
-  el('timerStatus').textContent = running ? `Tracking since ${new Date(state.timer.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Choose a task, then start';
+  el('timerStatus').textContent = running ? `Tracking since ${new Date(state.timer.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Choose a task, then start or enter hours manually';
   el('startStop').textContent = running ? 'Stop timer' : 'Start timer';
   if (running) requestAnimationFrame(updateTimer);
 }
@@ -130,10 +130,13 @@ async function startStop() {
 }
 async function saveEntry(event) {
   event.preventDefault();
-  if (!state.timer || state.timer.startedAt) return notice('Stop the timer before saving.');
+  if (state.timer?.startedAt) return notice('Stop the timer before saving.');
   const hours = Number(el('hours').value);
   if (!Number.isFinite(hours) || hours <= 0) return notice('Enter a valid duration.');
-  const entry = { ...state.timer.task, startDate: state.timer.workDate, endDate: state.timer.workDate, hours, dailyHours: [{ workDate: state.timer.workDate, hours }] };
+  const task = state.timer?.task || readTask();
+  if (!task.departmentId || !task.categoryId) return notice('Select a department and category before saving.');
+  const workDate = state.timer?.workDate || dateKey(Date.now());
+  const entry = { ...task, startDate: workDate, endDate: workDate, hours, dailyHours: [{ workDate, hours }] };
   const body = new URLSearchParams({ api: 'timerSave', entry: JSON.stringify(entry) });
   el('save').disabled = true;
   el('save').textContent = 'Saving…';
