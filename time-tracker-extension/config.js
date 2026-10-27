@@ -1,0 +1,1 @@
+const TIME_TRACKER_WEB_APP_URL = 'https://script.google.com/a/macros/roche.com/s/AKfycbzobFpTzT57HUR6aw8D09Jpf6Iw_b8nhAvT2rIEhEFVwBFjp0Cyt4xUmhvyq1WpfOMWcA/exec'
