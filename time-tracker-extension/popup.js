@@ -62,9 +62,12 @@ function applyTask(task) {
 }
 function updateTimer() {
   const running = state.timer?.startedAt;
+  const timerEntry = Boolean(state.timer);
   el('elapsed').textContent = running ? formatElapsed(Date.now() - state.timer.startedAt) : '00:00:00';
   el('timerStatus').textContent = running ? `Tracking since ${new Date(state.timer.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Choose a task, then start or enter hours manually';
   el('startStop').textContent = running ? 'Stop timer' : 'Start timer';
+  el('workDateWrap').hidden = timerEntry;
+  if (!el('workDate').value) el('workDate').value = dateKey(Date.now());
   if (running) requestAnimationFrame(updateTimer);
 }
 function updateSyncLabel(syncedAt) {
@@ -135,7 +138,8 @@ async function saveEntry(event) {
   if (!Number.isFinite(hours) || hours <= 0) return notice('Enter a valid duration.');
   const task = state.timer?.task || readTask();
   if (!task.departmentId || !task.categoryId) return notice('Select a department and category before saving.');
-  const workDate = state.timer?.workDate || dateKey(Date.now());
+  const workDate = state.timer?.workDate || el('workDate').value;
+  if (!workDate) return notice('Choose a date for this manual entry.');
   const entry = { ...task, startDate: workDate, endDate: workDate, hours, dailyHours: [{ workDate, hours }] };
   const body = new URLSearchParams({ api: 'timerSave', entry: JSON.stringify(entry) });
   el('save').disabled = true;
